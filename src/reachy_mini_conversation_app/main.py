@@ -46,7 +46,7 @@ def run(
     """Run the Reachy Mini conversation app."""
     # Putting these dependencies here makes the dashboard faster to load when the conversation app is installed
     from reachy_mini_conversation_app.moves import MovementManager
-    from reachy_mini_conversation_app.config import config, is_gemini_model, refresh_runtime_config_from_env
+    from reachy_mini_conversation_app.config import config, refresh_runtime_config_from_env
 
     logger = setup_logger(args.debug)
     logger.info("Starting Reachy Mini Conversation App")
@@ -141,27 +141,18 @@ def run(
     )
     logger.debug(f"Chatbot avatar images: {chatbot.avatar_images}")
 
-    if is_gemini_model():
-        from reachy_mini_conversation_app.gemini_live import GeminiLiveHandler
+    from reachy_mini_conversation_app.gemini_live import GeminiLiveHandler
 
-        logger.info("Using Gemini Live handler for model: %s", config.MODEL_NAME)
-        handler = GeminiLiveHandler(deps, gradio_mode=args.gradio, instance_path=instance_path)
-    else:
-        from reachy_mini_conversation_app.openai_realtime import OpenaiRealtimeHandler
-
-        logger.info("Using OpenAI Realtime handler for model: %s", config.MODEL_NAME)
-        handler = OpenaiRealtimeHandler(deps, gradio_mode=args.gradio, instance_path=instance_path)  # type: ignore[assignment]
+    logger.info("Using Gemini Live handler for model: %s", config.MODEL_NAME)
+    handler = GeminiLiveHandler(deps, gradio_mode=args.gradio, instance_path=instance_path)
 
     stream_manager: gr.Blocks | LocalStream | None = None
 
     if args.gradio:
-        uses_gemini_backend = is_gemini_model()
         api_key_textbox = gr.Textbox(
-            label="GEMINI_API_KEY" if uses_gemini_backend else "OPENAI API Key",
+            label="GEMINI_API_KEY",
             type="password",
-            value=(os.getenv("GEMINI_API_KEY") if uses_gemini_backend else os.getenv("OPENAI_API_KEY"))
-            if not get_space()
-            else "",
+            value=os.getenv("GEMINI_API_KEY") if not get_space() else "",
         )
 
         from reachy_mini_conversation_app.gradio_personality import PersonalityUI

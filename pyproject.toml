@@ -20,11 +20,12 @@ dependencies = [
     #Environment variables
     "python-dotenv",
 
-    #OpenAI
-    "openai>=2.30.0",
-
     #Gemini
     "google-genai>=1.0.0",
+
+    #Memory + MCP (Phase 4 & 5)
+    "aiosqlite>=0.21",
+    "mcp>=1.0.0",
 
     #Reachy mini
     "reachy_mini_dances_library",
