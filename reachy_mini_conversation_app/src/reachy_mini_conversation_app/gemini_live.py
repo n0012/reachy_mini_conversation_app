@@ -25,12 +25,8 @@ from google.genai import types
 from numpy.typing import NDArray
 from scipy.signal import resample
 
-from reachy_mini_conversation_app.config import (
-    GEMINI_BACKEND,
-    GEMINI_AVAILABLE_VOICES,
-    DEFAULT_VOICE_BY_BACKEND,
-    config,
-)
+from reachy_mini_conversation_app.config import config
+from reachy_mini_conversation_app.voices import resolve_voice
 from reachy_mini_conversation_app.prompts import get_session_voice, get_session_instructions
 from reachy_mini_conversation_app.tools.core_tools import (
     ToolDependencies,
@@ -112,13 +108,8 @@ def _convert_schema_types(schema: Any) -> Any:
 
 
 def _resolve_gemini_voice(profile_voice: str) -> str:
-    """Map a profile voice name to the closest Gemini voice.
-
-    If the voice is already a valid Gemini voice (case-insensitive), use it.
-    Otherwise fall back to the default.
-    """
-    voice_map = {v.lower(): v for v in GEMINI_AVAILABLE_VOICES}
-    return voice_map.get(profile_voice.lower(), DEFAULT_VOICE_BY_BACKEND[GEMINI_BACKEND])
+    """Return a valid Gemini voice name, falling back to the default."""
+    return resolve_voice(profile_voice)
 
 
 class GeminiLiveHandler(AsyncStreamHandler):

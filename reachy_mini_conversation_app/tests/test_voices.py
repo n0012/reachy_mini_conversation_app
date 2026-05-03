@@ -46,7 +46,6 @@ def test_available_voices_has_no_openai_names() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="voices.py not yet created (Phase 2)", strict=True)
 def test_validate_voice_accepts_valid() -> None:
     from reachy_mini_conversation_app.voices import validate_voice
 
@@ -54,7 +53,6 @@ def test_validate_voice_accepts_valid() -> None:
         assert validate_voice(v) == v
 
 
-@pytest.mark.xfail(reason="voices.py not yet created (Phase 2)", strict=True)
 def test_validate_voice_rejects_unknown() -> None:
     from reachy_mini_conversation_app.voices import validate_voice
 
@@ -62,7 +60,6 @@ def test_validate_voice_rejects_unknown() -> None:
         validate_voice("cedar")  # OpenAI voice — must be rejected
 
 
-@pytest.mark.xfail(reason="voices.py not yet created (Phase 2)", strict=True)
 def test_validate_voice_case_insensitive_reject() -> None:
     """Case variants of unknown voices should still be rejected."""
     from reachy_mini_conversation_app.voices import validate_voice
@@ -71,7 +68,6 @@ def test_validate_voice_case_insensitive_reject() -> None:
         validate_voice("CEDAR")
 
 
-@pytest.mark.xfail(reason="voices.py not yet created (Phase 2)", strict=True)
 def test_validate_voice_error_message_lists_valid_voices() -> None:
     """The ValueError message should tell the user what voices are valid."""
     from reachy_mini_conversation_app.voices import validate_voice

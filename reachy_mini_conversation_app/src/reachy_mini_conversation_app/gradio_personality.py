@@ -17,6 +17,7 @@ from reachy_mini_conversation_app.config import (
     get_default_voice_for_backend,
     get_available_voices_for_backend,
 )
+from reachy_mini_conversation_app.voices import validate_voice, SUPPORTED_GEMINI_VOICES
 
 
 class PersonalityUI:
@@ -116,7 +117,7 @@ class PersonalityUI:
         self.tools_txt_ta = gr.TextArea(label="tools.txt", lines=10, interactive=not is_locked)
         self.voice_dropdown = gr.Dropdown(
             label="Voice",
-            choices=get_available_voices_for_backend(),
+            choices=sorted(SUPPORTED_GEMINI_VOICES),
             value=get_default_voice_for_backend(),
             interactive=not is_locked,
         )
@@ -165,7 +166,12 @@ class PersonalityUI:
                 vf = self._resolve_profile_dir(name) / "voice.txt"
                 if vf.exists():
                     v = vf.read_text(encoding="utf-8").strip()
-                    return v or default_voice
+                    try:
+                        return validate_voice(v) if v else default_voice
+                    except ValueError as exc:
+                        import logging as _logging
+                        _logging.getLogger(__name__).warning("Profile %r: %s", name, exc)
+                        return default_voice
             except Exception:
                 pass
             return default_voice

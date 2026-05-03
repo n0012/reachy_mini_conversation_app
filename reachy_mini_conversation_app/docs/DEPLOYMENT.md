@@ -7,22 +7,35 @@
 | **SSH user** | `pollen` |
 | **SSH password** | `root` |
 | **Current IP** | `10.0.0.137` |
-| **Target IP** | `10.0.0.60` (pending DHCP fix — update wlan0 MAC `88:a2:9e:8c:bb:e8` in router reservation) |
+| **Target IP** | `10.0.0.60` (pending DHCP fix — update wlan0 MAC `88:a2:9e:8c:bb:e8` in router reservation, not eth0) |
 | **OS** | Linux aarch64 (Reachy Mini Pollen image) |
+
+## Repo layout
+
+```
+reachymini/
+  docs/                           ← planning docs
+  reachy_mini_conversation_app/   ← the app
+    src/
+    tests/
+    profiles/
+    pyproject.toml
+    ...
+```
 
 ---
 
 ## How the Reachy Mini app store works
 
-The robot's launcher discovers apps via the standard Python entry point group `reachy_mini_apps`. Any installed package that registers an entry point under this group appears in the on-robot UI automatically:
+The robot's launcher discovers apps via the Python entry point group `reachy_mini_apps`. Any installed package registering under this group appears in the on-robot UI:
 
 ```toml
-# pyproject.toml — this is what registers us in the app store
+# project/pyproject.toml — already set
 [project.entry-points."reachy_mini_apps"]
-reachy_mini_conversation_app_gemini = "reachy_mini_conversation_app.main:ReachyMiniConversationApp"
+reachy_mini_conversation_app = "reachy_mini_conversation_app.main:ReachyMiniConversationApp"
 ```
 
-Installing the package (any method — `pip install -e .`, `uv sync`, or cloning this repo) is all it takes to appear in the launcher. No separate registration step.
+Installing the package is all it takes — no separate registration step.
 
 ---
 
@@ -34,22 +47,67 @@ ssh pollen@10.0.0.137   # password: root
 # Install uv if not already present
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Clone this monorepo subtree (or clone the full monorepo and cd in)
+# Clone this monorepo (or just the reachymini subtree)
 cd ~
-git clone https://github.com/n0012/n0012-monorepo.git  # adjust URL once subtree is published
-cd n0012-monorepo/reachymini
-
-# OR — if cloning directly from the HF Space fork (after Phase 1)
-git clone https://huggingface.co/spaces/<your-hf-username>/reachy_mini_conversation_app_gemini .
+git clone https://github.com/n0012/n0012-monorepo.git
+cd n0012-monorepo/reachymini/reachy_mini_conversation_app
 
 # Create venv and install
 uv venv --python python3.12 .venv
 source .venv/bin/activate
 uv sync
 
-# Set your API key
+# Configure
 cp .env.example .env
-nano .env   # add GEMINI_API_KEY=...
+nano .env
+```
+
+---
+
+## Environment variables
+
+Copy `.env.example` to `.env`:
+
+| Variable | Required | Description |
+|---|---|---|
+| `GEMINI_API_KEY` | ✅ | Google AI Studio key — [aistudio.google.com](https://aistudio.google.com) |
+| `GCP_PROJECT_ID` | ✅ (Phase 4) | GCP project for Vertex AI Memory Bank |
+| `GCP_LOCATION` | ✅ (Phase 4) | Default: `us-central1` |
+| `VERTEX_REASONING_ENGINE_ID` | ✅ (Phase 4) | Agent Engine instance ID |
+| `MODEL_NAME` | optional | Default: `gemini-3.1-flash-live-preview` |
+| `DEFAULT_VOICE` | optional | Default: `Kore`. Options: `Puck`, `Charon`, `Kore`, `Fenrir`, `Aoede` |
+| `GOOGLE_SEARCH_GROUNDING` | optional | Set `1` to enable Google Search globally |
+| `REACHY_MINI_CUSTOM_PROFILE` | optional | Profile name to load (default: `default`) |
+| `REACHY_MINI_EXTERNAL_PROFILES_DIRECTORY` | optional | Path to additional profiles |
+| `REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY` | optional | Path to additional tool `.py` files |
+| `AUTOLOAD_EXTERNAL_TOOLS` | optional | Set `1` to auto-load all tools in external tools dir |
+
+---
+
+## GCP setup for Vertex AI Memory Bank (one-time)
+
+```bash
+# Authenticate
+gcloud auth application-default login
+
+# Enable APIs
+gcloud services enable aiplatform.googleapis.com --project=YOUR_PROJECT_ID
+
+# Create a Reasoning Engine instance (Memory Bank lives here)
+# Exact CLI TBD — confirm in Phase 0 spike
+gcloud ai reasoning-engines create \
+  --display-name="reachy-memory" \
+  --location=us-central1 \
+  --project=YOUR_PROJECT_ID
+
+# Note the ID from the output — add to .env as VERTEX_REASONING_ENGINE_ID
+```
+
+On the robot, authenticate ADC:
+```bash
+gcloud auth application-default login
+# Or use a service account key file:
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 ```
 
 ---
@@ -58,13 +116,13 @@ nano .env   # add GEMINI_API_KEY=...
 
 ```bash
 ssh pollen@10.0.0.137
-cd ~/n0012-monorepo/reachymini   # or wherever you cloned
-git pull                          # gets latest from n0012-monorepo
+cd ~/n0012-monorepo/reachymini/reachy_mini_conversation_app
+git pull
 source .venv/bin/activate
-uv sync                           # installs any new/changed deps
+uv sync
 ```
 
-To pull upstream bug fixes from the Pollen Robotics fork:
+Pull upstream bug fixes:
 ```bash
 git fetch upstream
 git merge upstream/main
@@ -76,105 +134,19 @@ uv sync
 ## Running manually (development / debugging)
 
 ```bash
+# On the robot
 ssh pollen@10.0.0.137
-cd ~/reachymini
+cd ~/n0012-monorepo/reachymini/reachy_mini_conversation_app
 source .venv/bin/activate
-reachy-mini-conversation-app          # uses default profile
+reachy-mini-conversation-app
 reachy-mini-conversation-app --profile noir_detective
-reachy-mini-conversation-app --help   # full options
 ```
-
-Or from your Mac (app connects to robot over the network):
-```bash
-cd /Users/nick/dev/github/n0012/personal/n0012-monorepo/reachymini
-source .venv/bin/activate
-REACHY_MINI_IP=10.0.0.137 reachy-mini-conversation-app
-```
-
----
-
-## Environment variables
-
-Copy `.env.example` to `.env` and fill in:
-
-| Variable | Required | Description |
-|---|---|---|
-| `GEMINI_API_KEY` | ✅ | Google AI Studio key — get from [aistudio.google.com](https://aistudio.google.com) |
-| `MODEL_NAME` | optional | Default: `gemini-3.1-flash-live-preview` |
-| `DEFAULT_VOICE` | optional | Default: `Kore`. Options: `Puck`, `Charon`, `Kore`, `Fenrir`, `Aoede` |
-| `GOOGLE_SEARCH_GROUNDING` | optional | Set `1` to enable Google Search globally (per-profile `grounding.txt` overrides) |
-| `MEMORY_DB_PATH` | optional | Default: `~/.reachy_mini/memory.sqlite` |
-| `MCP_SERVERS_CONFIG` | optional | Path to a global `mcp_servers.json` (per-profile configs take priority) |
-| `REACHY_MINI_CUSTOM_PROFILE` | optional | Profile name to load (default: `default`) |
-| `REACHY_MINI_EXTERNAL_PROFILES_DIRECTORY` | optional | Path to additional profiles outside the repo |
-| `REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY` | optional | Path to additional tool `.py` files |
-| `AUTOLOAD_EXTERNAL_TOOLS` | optional | Set `1` to auto-load all tools in external tools dir |
-
----
-
-## Publishing to the Reachy Mini app store (HF Space)
-
-The robot's launcher can install apps directly from Hugging Face Spaces. To make this fork discoverable the same way as the upstream:
-
-1. Create a Hugging Face account (or use the existing `n0012` org)
-2. Create a new Space: `n0012/reachy_mini_conversation_app_gemini`
-3. Push from this folder:
-   ```bash
-   cd /Users/nick/dev/github/n0012/personal/n0012-monorepo/reachymini
-   git remote add hf https://huggingface.co/spaces/n0012/reachy_mini_conversation_app_gemini
-   git push hf main
-   ```
-4. Tag the Space with `reachy-mini` so the robot's launcher picks it up in discovery
-5. Robot install:
-   ```bash
-   # From robot or from Mac connected to robot
-   uv pip install git+https://huggingface.co/spaces/n0012/reachy_mini_conversation_app_gemini
-   ```
-
-The `reachy_mini_apps` entry point (in `pyproject.toml`) registers it with the launcher automatically on install.
-
----
-
-## Profiles
-
-Profiles live in `profiles/`. Each is a folder with:
-- `instructions.txt` — system prompt (supports `[system/base_behavior]` template includes)
-- `tools.txt` — enabled tools, comma or newline separated
-- `voice.txt` — Gemini voice name (Puck, Charon, Kore, Fenrir, Aoede)
-- `grounding.txt` — optional; add `google_search=true` to enable web search for this persona
-- `mcp_servers.json` — optional; list of MCP servers available to this persona
-
-Create a custom profile:
-```bash
-mkdir profiles/my_custom_profile
-echo "Your custom system prompt here." > profiles/my_custom_profile/instructions.txt
-echo "dance, move_head" > profiles/my_custom_profile/tools.txt
-echo "Puck" > profiles/my_custom_profile/voice.txt
-
-# Launch with it
-reachy-mini-conversation-app --profile my_custom_profile
-```
-
----
-
-## Upstream sync
-
-This fork tracks `upstream` (the original Pollen Robotics HF Space):
-
-```bash
-git fetch upstream
-git merge upstream/main
-# Resolve any conflicts (mainly in gemini_live.py and config.py)
-uv sync
-```
-
-Significant upstream changes to watch for: updates to `console.py` (shared abstraction), `tools/core_tools.py` (Tool ABC), and the profile system.
 
 ---
 
 ## Local testing (Mac — no robot required)
 
-The robot SDK (`reachy-mini`) pulls in `pygobject`/`pycairo` which need a native cairo library unavailable on Mac. Run tests against just the importable subset:
+The robot SDK (`reachy-mini`) requires native cairo unavailable on Mac. Run tests against the importable subset:
 
 ```bash
 cd /Users/nick/dev/github/n0012/personal/n0012-monorepo/reachymini
@@ -183,21 +155,68 @@ cd /Users/nick/dev/github/n0012/personal/n0012-monorepo/reachymini
 uv pip install python-dotenv google-genai aiosqlite mcp pytest pytest-asyncio
 
 # Run tests
-PYTHONPATH=src uv run --no-project pytest tests/test_gemini_only_config.py tests/test_voices.py tests/test_config_name_collisions.py -v
+PYTHONPATH=reachy_mini_conversation_app/src uv run --no-project pytest \
+  reachy_mini_conversation_app/tests/test_gemini_only_config.py \
+  reachy_mini_conversation_app/tests/test_voices.py \
+  reachy_mini_conversation_app/tests/test_config_name_collisions.py -v
 ```
 
-Robot-hardware tests (audio, camera, moves) can only run on the robot itself. The unit tests above cover config, voices, and profile logic — everything you can validate before deploying.
+---
+
+## Profiles
+
+Each profile is a folder under `profiles/`:
+
+```
+profiles/my_profile/
+  instructions.txt    — system prompt
+  tools.txt           — enabled tools (comma or newline separated)
+  voice.txt           — Gemini voice (Puck, Charon, Kore, Fenrir, Aoede)
+  grounding.txt       — optional: google_search=true
+  mcp_servers.json    — optional: MCP server list
+```
+
+```bash
+mkdir reachy_mini_conversation_app/profiles/my_profile
+echo "You are a helpful robot named Cosmo." > reachy_mini_conversation_app/profiles/my_profile/instructions.txt
+echo "dance, move_head" > reachy_mini_conversation_app/profiles/my_profile/tools.txt
+echo "Puck" > reachy_mini_conversation_app/profiles/my_profile/voice.txt
+
+reachy-mini-conversation-app --profile my_profile
+```
+
+---
+
+## Publishing to HF Space (app store distribution)
+
+```bash
+cd /Users/nick/dev/github/n0012/personal/n0012-monorepo/reachymini/reachy_mini_conversation_app
+git remote add hf https://huggingface.co/spaces/n0012/reachy_mini_conversation_app_gemini
+git push hf main
+```
+
+Tag the Space with `reachy-mini` for launcher discovery.
+
+---
+
+## Upstream sync
+
+```bash
+git fetch upstream
+git merge upstream/main
+# Resolve conflicts (mainly gemini_live.py, config.py)
+uv sync
+```
 
 ---
 
 ## Phase 0 spike
 
-Before implementing Phase 4 (memory), run the spike to determine which memory architecture to use:
+Before Phase 4, run the Memory Bank compatibility spike:
 
 ```bash
-cd /Users/nick/dev/github/n0012/personal/n0012-monorepo/reachymini
-source .venv/bin/activate
-python spikes/interactions_live.py
+PYTHONPATH=reachy_mini_conversation_app/src uv run --no-project \
+  python reachy_mini_conversation_app/spikes/memory_bank_spike.py
 ```
 
-See `spikes/interactions_live.py` for setup instructions. Records its finding in `spikes/FINDINGS.md`.
+Records findings in `reachy_mini_conversation_app/spikes/FINDINGS.md`.
