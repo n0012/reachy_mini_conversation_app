@@ -62,14 +62,15 @@ def get_location_context() -> str:
         )
 
         lines = [
-            "## Location defaults (inferred from network — memory overrides these)",
-            f"- Location: {location_str}",
+            "## User location (confirmed via network lookup — treat as authoritative)",
+            f"- The user is located in: {location_str}",
             f"- Current local time: {local_time_str}" if local_time_str else "",
             f"- Timezone: {timezone}" if timezone else "",
             f"- Temperature units: {temp_unit}",
-            "- Use this for local news, weather, sports, and time references.",
-            "- Always use the local time above when asked what time it is — never use UTC.",
-            "- If the user mentions a different location or preference, that takes priority.",
+            f"- When asked 'where am I?' or 'where are we?' answer: '{location_str}'",
+            "- Use this for all local weather, news, sports, and time references.",
+            "- Always use the local time above when asked what time it is — never UTC.",
+            "- If the user corrects their location, update and use their answer instead.",
         ]
         return "\n".join(line for line in lines if line)
 

@@ -37,10 +37,16 @@ class IdentifyUserTool(Tool):
         "required": ["user_id"],
     }
 
+    # Words that are clearly not names (common speech-recognition artifacts)
+    _NOT_NAMES = {"face", "hey", "yes", "no", "ok", "hi", "hello", "um", "uh", "sure",
+                  "it", "me", "i", "my", "this", "that", "the", "a", "an"}
+
     async def __call__(self, deps: ToolDependencies, **kwargs: Any) -> Dict[str, Any]:
         user_id = (kwargs.get("user_id") or "").strip().lower().replace(" ", "_")
         if not user_id:
             return {"status": "error", "message": "No user_id provided."}
+        if user_id in self._NOT_NAMES or len(user_id) < 2:
+            return {"status": "error", "message": f"'{user_id}' doesn't look like a name — please ask again."}
 
         previous = get_active_user()
         set_active_user(user_id)
