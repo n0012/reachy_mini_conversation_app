@@ -114,6 +114,51 @@ _api('POST', b._url('memories:generate'), {
 
 ---
 
+## Seed initial memories for a new user/profile
+
+Useful when setting up a new profile and you want Yuki to know key facts from day one
+rather than waiting for conversations to generate them.
+
+**Single fact:**
+
+```python
+_api('POST', b._url('memories:generate'), {
+    'scope': {'user_id': 'nick', 'profile': 'yuki'},
+    'direct_memories_source': {
+        'direct_memories': [{'fact': 'Nick lives in Springfield, Illinois.'}]
+    },
+    'revision_labels': {'source': 'seed'},
+})
+```
+
+**Bulk seed — multiple facts in one call:**
+
+```python
+seed_facts = [
+    "Nick's full name is Nick. He works at Google.",
+    "Nick is married to Sam. They have two kids: Mia and Max.",
+    "The family has a yellow lab named Biscuit.",
+    "Nick enjoys golf, skiing, camping, and hiking.",
+    "Nick's favorite ski mountain is Vail. His favorite run is Prima (hard double black).",
+    "The family owns an Opus OP4 camper and a gray 2020 Toyota Tundra.",
+    "Nick prefers concise, direct answers.",
+]
+
+_api('POST', b._url('memories:generate'), {
+    'scope': {'user_id': 'nick', 'profile': 'yuki'},
+    'direct_memories_source': {
+        'direct_memories': [{'fact': f} for f in seed_facts]
+    },
+    'revision_labels': {'source': 'seed'},
+})
+print(f"Seeded {len(seed_facts)} facts — extraction LRO started (takes 1–5 min)")
+```
+
+**Tip:** Run `memories:retrieve` after a few minutes to confirm the facts appear.
+The Agent Engine may merge similar facts or rephrase them during extraction — that's expected.
+
+---
+
 ## Notes
 
 - `memories:generate` starts an LRO — extraction takes 1–5 minutes before memories become retrievable
