@@ -348,12 +348,13 @@ class GeminiLiveHandler(AsyncStreamHandler):
         tool_specs = get_tool_specs()
         function_declarations = _openai_tool_specs_to_gemini(tool_specs)
 
+        # google_search goes first per Google's docs — signals model to prefer it
         tools_config: List[Dict[str, Any]] = []
-        if function_declarations:
-            tools_config.append({"function_declarations": function_declarations})
         if get_session_grounding():
             tools_config.append({"google_search": {}})
-            logger.info("Google Search grounding enabled for this session")
+            logger.warning("Google Search grounding enabled for this session")
+        if function_declarations:
+            tools_config.append({"function_declarations": function_declarations})
 
         live_config = types.LiveConnectConfig(
             response_modalities=[types.Modality.AUDIO],

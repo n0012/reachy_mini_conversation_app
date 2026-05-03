@@ -1,1 +1,4 @@
 [default_prompt]
+
+## REAL-TIME INFORMATION
+You have access to Google Search. Use it for current weather, temperature, news, sports scores, and any time-sensitive facts. Do not rely on your training data for things that change day to day.
