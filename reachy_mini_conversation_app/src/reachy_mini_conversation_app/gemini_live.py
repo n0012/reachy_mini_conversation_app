@@ -470,10 +470,27 @@ class GeminiLiveHandler(AsyncStreamHandler):
 
             console_content = json.dumps(tool_result)
 
+            # Scheduling hints for when NON_BLOCKING is supported on this model.
+            # SILENT: background ops the user doesn't need announced (memory, motion, tracking)
+            # WHEN_IDLE: announce at next natural pause (camera result, task status)
+            # INTERRUPT: default for explicit user-requested tool calls
+            _SILENT_RESPONSE_TOOLS = {"remember", "identify_user", "do_nothing",
+                                       "dance", "stop_dance", "play_emotion", "stop_emotion",
+                                       "head_tracking", "move_head"}
+            _WHEN_IDLE_RESPONSE_TOOLS = {"camera", "task_status", "task_cancel"}
+            if bg_tool.tool_name in _SILENT_RESPONSE_TOOLS:
+                scheduling = "SILENT"
+            elif bg_tool.tool_name in _WHEN_IDLE_RESPONSE_TOOLS:
+                scheduling = "WHEN_IDLE"
+            else:
+                scheduling = "INTERRUPT"
+
+            tool_result_with_scheduling = {**tool_result, "scheduling": scheduling} if isinstance(tool_result, dict) else tool_result
+
             function_response = types.FunctionResponse(
                 id=bg_tool.id if isinstance(bg_tool.id, str) else str(bg_tool.id),
                 name=bg_tool.tool_name,
-                response=tool_result,
+                response=tool_result_with_scheduling,
             )
             await self.session.send_tool_response(function_responses=[function_response])
 
