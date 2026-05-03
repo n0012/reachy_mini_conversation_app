@@ -280,6 +280,11 @@ async function init() {
   const input = document.getElementById("api-key");
 
   // Personality elements
+  const monitorPanel = document.getElementById("monitor-panel");
+  const monitorChip = document.getElementById("monitor-chip");
+  const transcriptLog = document.getElementById("transcript-log");
+  const transcriptEmpty = document.getElementById("transcript-empty");
+
   const pSelect = document.getElementById("personality-select");
   const pApply = document.getElementById("apply-personality");
   const pPersist = document.getElementById("persist-personality");
@@ -667,6 +672,36 @@ async function init() {
       setStatusMessage(pStatus, "Voices unavailable. The backend default voice will be used.", "warn");
     }
     show(personalityPanel, true);
+
+    // Monitor panel
+    show(monitorPanel, true);
+    function appendTranscriptMessage({ role, content }) {
+      if (!content || !content.trim()) return;
+      transcriptEmpty.style.display = "none";
+      const div = document.createElement("div");
+      div.className = `transcript-msg ${role === "user" ? "user" : "assistant"}`;
+      const label = document.createElement("div");
+      label.className = "transcript-role";
+      label.textContent = role === "user" ? "You" : "Reachy";
+      const text = document.createElement("div");
+      text.textContent = content;
+      div.appendChild(label);
+      div.appendChild(text);
+      transcriptLog.appendChild(div);
+      transcriptLog.scrollTop = transcriptLog.scrollHeight;
+    }
+    const es = new EventSource("/stream/transcript");
+    es.onmessage = (event) => {
+      try { appendTranscriptMessage(JSON.parse(event.data)); } catch {}
+    };
+    es.onopen = () => {
+      monitorChip.textContent = "Live";
+      monitorChip.className = "chip chip-ok";
+    };
+    es.onerror = () => {
+      monitorChip.textContent = "Reconnecting…";
+      monitorChip.className = "chip";
+    };
 
     pApplyVoice.addEventListener("click", async () => {
       const voice = pVoice.value;

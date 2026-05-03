@@ -10,6 +10,7 @@ the selected backend and any provided API keys into the app instance's ``.env``
 file when available.
 """
 
+import json
 import os
 import sys
 import time
@@ -47,7 +48,7 @@ try:
     # FastAPI is provided by the Reachy Mini Apps runtime
     from fastapi import FastAPI, Response
     from pydantic import BaseModel
-    from fastapi.responses import FileResponse, JSONResponse
+    from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
     from starlette.staticfiles import StaticFiles
 except Exception:  # pragma: no cover - only loaded when settings_app is used
     FastAPI = object  # type: ignore
@@ -106,6 +107,7 @@ class LocalStream:
         self._instance_path: Optional[str] = instance_path
         self._settings_initialized = False
         self._asyncio_loop = None
+        self._transcript_buffer: list[dict] = []
 
     # ---- Settings UI ----
     def _read_env_lines(self, env_path: Path) -> list[str]:
@@ -471,6 +473,51 @@ class LocalStream:
                 logger.warning("Setup failed: %s", e)
                 return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
+        @self._settings_app.get("/stream/camera")
+        def _stream_camera() -> "StreamingResponse":
+            def camera_frames():
+                try:
+                    while True:
+                        try:
+                            deps = getattr(self.handler, "deps", None)
+                            cw = getattr(deps, "camera_worker", None) if deps else None
+                            frame = cw.get_latest_frame() if cw is not None else None
+                            if frame is not None:
+                                from reachy_mini_conversation_app.camera_frame_encoding import encode_bgr_frame_as_jpeg
+                                jpeg = encode_bgr_frame_as_jpeg(frame)
+                                yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
+                        except GeneratorExit:
+                            return
+                        except Exception:
+                            pass
+                        time.sleep(1.0)
+                except GeneratorExit:
+                    return
+            return StreamingResponse(camera_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
+
+        @self._settings_app.get("/stream/transcript")
+        def _stream_transcript() -> "StreamingResponse":
+            def transcript_events():
+                try:
+                    pointer = 0
+                    snapshot = list(self._transcript_buffer)
+                    for entry in snapshot:
+                        yield f"data: {json.dumps(entry)}\n\n"
+                        pointer += 1
+                    while True:
+                        buf = self._transcript_buffer
+                        while pointer < len(buf):
+                            yield f"data: {json.dumps(buf[pointer])}\n\n"
+                            pointer += 1
+                        time.sleep(0.3)
+                except GeneratorExit:
+                    return
+            return StreamingResponse(
+                transcript_events(),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
+
         self._settings_initialized = True
 
     def launch(self) -> None:
@@ -636,6 +683,9 @@ class LocalStream:
                             msg.get("role"),
                             content if len(content) < 500 else content[:500] + "…",
                         )
+                        role = msg.get("role")
+                        if role in ("user", "assistant") and content.strip():
+                            self._transcript_buffer.append({"role": role, "content": content})
 
             elif isinstance(handler_output, tuple):
                 input_sample_rate, audio_data = handler_output

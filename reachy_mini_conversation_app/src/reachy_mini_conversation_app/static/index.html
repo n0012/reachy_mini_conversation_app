@@ -219,6 +219,27 @@
         </div>
         <p id="personality-status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
       </div>
+
+      <div id="monitor-panel" class="panel hidden">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Live monitor</p>
+            <h2>What Reachy sees</h2>
+          </div>
+          <span id="monitor-chip" class="chip">Connecting…</span>
+        </div>
+        <div class="monitor-grid">
+          <div class="monitor-camera">
+            <img id="camera-feed" src="/stream/camera" alt="Camera feed" />
+            <p class="muted small camera-label">1 fps · live</p>
+          </div>
+          <div class="monitor-transcript">
+            <p class="eyebrow" style="margin:0 0 10px">Conversation</p>
+            <div id="transcript-log"></div>
+            <p id="transcript-empty" class="muted small">Waiting for conversation…</p>
+          </div>
+        </div>
+      </div>
     </div>
 
     <script src="/static/main.js"></script>
