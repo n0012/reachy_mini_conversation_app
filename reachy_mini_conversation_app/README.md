@@ -184,12 +184,54 @@ Persistent per-user memory backed by Agent Engine instance `YOUR_ENGINE_ID` on p
 - **Remember tool**: model can explicitly store facts mid-conversation
 - **Multi-user**: `identify_user` tool scopes memories per person; active user persisted in `~/.reachy_mini/active_user.json`
 
-GCP setup (one-time):
+### GCP setup (one-time)
+
+The app authenticates to both Gemini and the Memory Bank via a single service account key — no Gemini API key needed.
+
+**1. Enable APIs**
 
 ```bash
 gcloud services enable aiplatform.googleapis.com --project=YOUR_PROJECT_ID
-# Create a Reasoning Engine instance, note the ID → VERTEX_REASONING_ENGINE_ID in .env
 ```
+
+**2. Create service account and grant permissions**
+
+```bash
+export PROJECT_ID=YOUR_PROJECT_ID
+
+gcloud iam service-accounts create reachy-mini \
+  --display-name="Reachy Mini" \
+  --project=$PROJECT_ID
+
+# roles/aiplatform.user covers Gemini Live API + Agent Engine memory
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="serviceAccount:reachy-mini@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role="roles/aiplatform.user" \
+  --condition=None
+```
+
+**3. Download the key**
+
+```bash
+gcloud iam service-accounts keys create reachy-mini-sa-key.json \
+  --iam-account=reachy-mini@${PROJECT_ID}.iam.gserviceaccount.com \
+  --project=$PROJECT_ID
+```
+
+> If key creation is blocked by an org policy, see [docs/GCP_ORG_POLICY.md](docs/GCP_ORG_POLICY.md) for the override steps.
+
+**4. Create a Reasoning Engine instance (Memory Bank)**
+
+```bash
+# Via REST — note the ID returned → VERTEX_REASONING_ENGINE_ID in setup wizard
+curl -X POST \
+  "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/${PROJECT_ID}/locations/us-central1/reasoningEngines" \
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  -H "Content-Type: application/json" \
+  -d '{"displayName": "reachy-memory", "spec": {}}'
+```
+
+Paste the key JSON into the setup wizard at `http://ROBOT_IP:7860` — it handles everything from there.
 
 ---
 

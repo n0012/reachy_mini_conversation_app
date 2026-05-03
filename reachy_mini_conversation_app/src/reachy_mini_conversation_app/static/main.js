@@ -415,7 +415,6 @@ async function init() {
     }
 
     setupSubmitBtn.addEventListener("click", async () => {
-      const geminiKey = (document.getElementById("setup-gemini-key").value || "").trim();
       const gcpProject = (document.getElementById("setup-gcp-project").value || "").trim();
       const gcpLocation = (document.getElementById("setup-gcp-location").value || "us-central1").trim();
       const engineId = (document.getElementById("setup-engine-id").value || "").trim();
@@ -423,7 +422,7 @@ async function init() {
       const voice = setupVoice.value || defaultVoice;
       const grounding = document.getElementById("setup-grounding").checked;
 
-      if (!geminiKey || !gcpProject || !engineId || !saJson) {
+      if (!gcpProject || !engineId || !saJson) {
         setStatusMessage(setupStatusEl, "Please fill in all required fields.", "warn");
         return;
       }
@@ -437,7 +436,6 @@ async function init() {
       setupSubmitBtn.disabled = true;
       try {
         await submitSetup({
-          gemini_api_key: geminiKey,
           gcp_project_id: gcpProject,
           gcp_location: gcpLocation,
           vertex_reasoning_engine_id: engineId,

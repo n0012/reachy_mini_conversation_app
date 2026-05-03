@@ -274,23 +274,11 @@ class GeminiLiveHandler(AsyncStreamHandler):
 
     async def start_up(self) -> None:
         """Start the handler with retries on unexpected closure."""
-        gemini_api_key = config.GEMINI_API_KEY
-        if self.gradio_mode and not gemini_api_key:
-            await self.wait_for_args()  # type: ignore[no-untyped-call]
-            args = list(self.latest_args)
-            textbox_api_key = args[3] if len(args) > 3 and len(args[3]) > 0 else None
-            if textbox_api_key is not None:
-                gemini_api_key = textbox_api_key
-                self._key_source = "textbox"
-                self._provided_api_key = textbox_api_key
-            else:
-                gemini_api_key = config.GEMINI_API_KEY
-        else:
-            if not gemini_api_key or not gemini_api_key.strip():
-                logger.warning("GEMINI_API_KEY missing. Proceeding with a placeholder (tests/offline).")
-                gemini_api_key = "DUMMY"
-
-        self.client = genai.Client(api_key=gemini_api_key)
+        project = os.environ.get("GCP_PROJECT_ID", "").strip()
+        location = os.environ.get("GCP_LOCATION", "us-central1").strip() or "us-central1"
+        if not project:
+            raise RuntimeError("GCP_PROJECT_ID is required. Complete setup at the web UI.")
+        self.client = genai.Client(vertexai=True, project=project, location=location)
 
         max_attempts = 3
         for attempt in range(1, max_attempts + 1):
