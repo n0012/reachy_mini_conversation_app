@@ -18,13 +18,15 @@ from __future__ import annotations
 import json
 import logging
 import os
-import subprocess
 import urllib.error
 import urllib.request
 import asyncio
 from datetime import date
 from pathlib import Path
 from typing import Protocol, runtime_checkable
+
+import google.auth
+import google.auth.transport.requests
 
 
 logger = logging.getLogger(__name__)
@@ -56,12 +58,26 @@ class MemoryBackend(Protocol):
 
 # ── Vertex AI Memory Bank ─────────────────────────────────────────────────────
 
+_credentials: google.auth.credentials.Credentials | None = None
+_http_request = google.auth.transport.requests.Request()
+
+
 def _get_token() -> str:
-    result = subprocess.run(
-        ["gcloud", "auth", "print-access-token"],
-        capture_output=True, text=True, check=True,
-    )
-    return result.stdout.strip()
+    """Return a valid OAuth2 bearer token via google-auth (no gcloud CLI required).
+
+    Reads credentials from, in priority order:
+      1. GOOGLE_APPLICATION_CREDENTIALS env var (SA JSON or ADC JSON)
+      2. Well-known ADC file (~/.config/gcloud/application_default_credentials.json)
+    Handles both 'service_account' and 'authorized_user' credential types.
+    """
+    global _credentials
+    if _credentials is None:
+        _credentials, _ = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+    if not _credentials.valid:
+        _credentials.refresh(_http_request)
+    return _credentials.token  # type: ignore[return-value]
 
 
 def _api(method: str, url: str, body: dict | None = None) -> dict:

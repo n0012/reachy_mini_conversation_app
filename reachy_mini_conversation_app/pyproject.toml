@@ -23,6 +23,9 @@ dependencies = [
     #Gemini
     "google-genai>=1.0.0",
 
+    #Auth (no gcloud CLI needed on robot)
+    "google-auth>=2.0.0",
+
     #Memory + MCP (Phase 4 & 5)
     "aiosqlite>=0.21",
     "mcp>=1.0.0",
