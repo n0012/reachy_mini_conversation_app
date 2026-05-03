@@ -528,12 +528,17 @@ async function init() {
     function appendTranscriptMessage({ role, content }) {
       if (!content || !content.trim()) return;
       if (ACTIVITY_ROLES.has(role)) {
-        // Activity log
+        // Activity log — truncate tool content to name only (strip args for readability)
         activityEmpty.style.display = "none";
         const row = document.createElement("div");
         row.className = "activity-row";
         const icon = role === "tool" ? "🛠" : role === "search" ? "🔍" : "🧠";
-        row.textContent = `${icon} ${content}`;
+        // For tools: show just the function name, strip args
+        const display = role === "tool"
+          ? content.replace(/\(.*\)$/, "")
+          : content;
+        row.title = content; // full content on hover
+        row.innerHTML = `<span class="activity-icon">${icon}</span><span class="activity-text">${display}</span>`;
         activityLog.appendChild(row);
         activityLog.scrollTop = activityLog.scrollHeight;
       } else {
