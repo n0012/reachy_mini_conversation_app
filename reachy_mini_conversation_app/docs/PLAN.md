@@ -120,82 +120,65 @@ Phase 0 spike verifies coexistence. If it fails, use two separate `LiveConnectCo
 
 ---
 
-## Phase 4 — Conversation Memory via Vertex AI Memory Bank
+## Phase 4 — Conversation Memory via Vertex AI Memory Bank ✅ Complete
 
-### Why Vertex AI Memory Bank
+### Implementation (fully aligned with OpenClaw source code review)
 
-The whole app requires internet (Gemini Live API), so server-side memory adds no new dependency. Benefits:
-- Survives robot disk wipes and OS updates
-- Semantic similarity retrieval (finds relevant facts without exact match)
-- Server-side consolidation and deduplication — no local state to manage
-- Same GCP ecosystem as Gemini
+**Engine:** `losiern-vibe` / `us-central1` / `YOUR_ENGINE_ID`
 
-### REST API (no Python SDK required — use `google-auth` + `httpx`)
-
-```
-Base: https://{location}-aiplatform.googleapis.com/v1beta1
-Parent: projects/{project}/locations/{location}/reasoningEngines/{engine_id}
-```
+**REST API (camelCase per OpenClaw canonical):**
 
 | Operation | Call |
 |---|---|
-| Ingest transcript after session | `POST /{parent}/memories:generate` with `direct_contents_source` |
+| Ingest transcript after session | `POST /{parent}/memories:generate` with `direct_contents_source` + `revision_labels` |
 | Store explicit fact (remember tool) | `POST /{parent}/memories:generate` with `direct_memories_source` |
-| Retrieve at session start | `POST /{parent}/memories:retrieve` with `similaritySearchParams` |
+| Retrieve at session start | `POST /{parent}/memories:retrieve` with `similaritySearchParams.searchQuery/topK` |
+| Update existing memory | `PATCH /{parent}/memories/{id}?updateMask=fact` with exponential backoff |
 | Delete a memory | `DELETE /{parent}/memories/{id}` |
 
-**Auth:** `google.auth` ADC — same credentials already used for Gemini.
+**Engine config (applied via PATCH — one-time setup):**
+- `enable_third_person_memories: true` — stores as "Nick prefers..." not "I prefer..."
+- Topics: `USER_PREFERENCES`, `EXPLICIT_INSTRUCTIONS`, `KEY_CONVERSATION_DETAILS` (managed) + `user_personal_info`, `routines_and_schedule` (custom)
+- Few-shot examples using `conversationSource/generatedMemories` structure — teaches engine to ignore weather, scores, noise
 
-### Memory backend abstraction
-
-New file: `project/src/reachy_mini_conversation_app/memory.py`
-
+**Memory backend abstraction:**
 ```python
 class MemoryBackend(Protocol):
-    async def load_context(self, profile: str) -> str: ...   # injected into system_instruction
-    async def save_session(self, profile: str, transcript: list[dict]) -> None: ...
-    async def remember(self, profile: str, fact: str) -> None: ...
-    async def forget(self, profile: str, memory_id: str) -> None: ...
-
-class VertexMemoryBackend:
-    """Calls Vertex AI Memory Bank REST API."""
-    ...
-
-class FileMemoryBackend:
-    """Fallback: MEMORY.md + last.md for local dev without GCP."""
-    ...
+    async def load_context(self, profile: str, user_id: str | None = None) -> str: ...
+    async def save_session(self, profile: str, transcript: list[dict], user_id: str | None = None) -> None: ...
+    async def remember(self, profile: str, fact: str, user_id: str | None = None) -> None: ...
 ```
 
-### What gets stored
+**Per-user scoping (multi-user households):**
+- `~/.reachy_mini/active_user.json` persists active user across sessions
+- `identify_user` tool switches user mid-conversation + persists
+- Scope: `{"user_id": "nick", "profile": "default"}` — Nick's memories never shown to Zach
 
-**After each Live session ends** (background task, one standard Gemini API call):
-- Extract turns from the transcript debounce buffer (already captured in `gemini_live.py`)
-- `POST /memories:generate` with `direct_contents_source` → Memory Bank extracts salient facts server-side
+**Noise filtering (OpenClaw thresholds):**
+- Skip turns < 20 chars (user) or < 100 chars total
+- Skip tool call logs (`🛠️` prefix), JSON-only turns
+- Truncate to 4000 chars per message before sending
 
-**The `remember` tool** (exposed via existing tool plugin system):
-- `POST /memories:generate` with `direct_memories_source: {direct_memories: [{fact: "..."}]}`
-- Reachy calls this when it learns something worth keeping mid-conversation
-
-**At session start** (`system_instruction` injection):
-- `POST /memories:retrieve` with query "What do I know about the user and this robot?" + `topK: 10`
-- Format retrieved facts as bullet points, inject into `system_instruction`
-
-### Memory scoping
-
-Scope by profile to isolate personas:
-```json
-{"scope": {"profile": "default", "user_id": "nick"}}
+**Injection format (OpenClaw pattern):**
+```
+<vertex_memory_bank>
+Relevant memories from prior sessions:
+1. Nick's name is Nick.
+2. Works from home with multi-monitor setup.
+3. Plays golf on Sunday mornings.
+</vertex_memory_bank>
 ```
 
-### Required GCP setup (one-time)
+**Active user persistence:**
+- `~/.reachy_mini/active_user.json` — survives robot restart
+- `identify_user` tool adds to NOT_NAMES list to reject speech artifacts ("face", "ok", etc.)
+
+### Required GCP setup (one-time, complete)
 
 ```bash
-# Enable APIs
 gcloud services enable aiplatform.googleapis.com
-
-# Create a Reasoning Engine (Memory Bank lives here)
-# Note exact CLI TBD — confirm via spike
-gcloud ai reasoning-engines create --display-name="reachy-memory" --location=us-central1
+# Engine created via REST POST — engine ID stored in .env
+# REACHY_MINI_PROFILES_OVERRIDE + REACHY_MINI_CUSTOM_PROFILE=default in .env
 
 # Note the reasoning engine ID
 ```
