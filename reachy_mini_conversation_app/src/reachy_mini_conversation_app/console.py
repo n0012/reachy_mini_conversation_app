@@ -301,6 +301,17 @@ class LocalStream:
                 "setup_complete": self._is_setup_complete(),
             }
 
+        # GET /config -> current GCP configuration (no secrets)
+        @self._settings_app.get("/config")
+        def _get_config() -> JSONResponse:
+            return JSONResponse({
+                "gcp_project_id": os.environ.get("GCP_PROJECT_ID", ""),
+                "gcp_location": os.environ.get("GCP_LOCATION", "us-central1"),
+                "vertex_reasoning_engine_id": os.environ.get("VERTEX_REASONING_ENGINE_ID", ""),
+                "has_credentials": bool(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip()),
+                "google_search_grounding": os.environ.get("GOOGLE_SEARCH_GROUNDING", "") == "1",
+            })
+
         # GET /voices -> available voices with style descriptions
         @self._settings_app.get("/voices")
         def _voices_static() -> JSONResponse:
@@ -383,11 +394,18 @@ class LocalStream:
         @self._settings_app.post("/setup")
         def _setup(payload: SetupPayload) -> JSONResponse:
             try:
-                # Write service account key to stable location
-                sa_path = REACHY_MINI_DIR / "service_account.json"
                 REACHY_MINI_DIR.mkdir(parents=True, exist_ok=True)
-                sa_path.write_text(payload.service_account_json, encoding="utf-8")
-                sa_path.chmod(0o600)
+                sa_path = REACHY_MINI_DIR / "service_account.json"
+
+                # Only write SA key if real JSON was provided (not empty/placeholder)
+                sa_json = (payload.service_account_json or "").strip()
+                if sa_json and sa_json != "{}":
+                    try:
+                        json.loads(sa_json)  # validate
+                        sa_path.write_text(sa_json, encoding="utf-8")
+                        sa_path.chmod(0o600)
+                    except json.JSONDecodeError as je:
+                        return JSONResponse({"ok": False, "error": f"Invalid JSON: {je}"}, status_code=400)
 
                 # Persist all env vars to ~/.reachy_mini/.env
                 updates: dict[str, str] = {

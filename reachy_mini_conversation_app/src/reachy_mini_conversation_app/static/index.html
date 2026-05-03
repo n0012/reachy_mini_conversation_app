@@ -141,6 +141,43 @@
         <p id="personality-status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
       </div>
 
+      <!-- Configuration (post-setup, collapsible) -->
+      <details id="config-details" class="panel hidden" style="padding:0">
+        <summary style="padding:18px 18px 16px;cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <p class="eyebrow" style="margin:0">GCP Configuration</p>
+            <span style="font-size:15px;font-weight:600;color:var(--text)">Credentials &amp; endpoints</span>
+          </div>
+          <span id="config-chip" class="chip chip-ok">Configured</span>
+        </summary>
+        <div style="padding:0 18px 18px">
+          <div class="row">
+            <label for="cfg-gcp-project">GCP Project ID</label>
+            <input id="cfg-gcp-project" type="text" placeholder="my-project-id" autocomplete="off" />
+          </div>
+          <div class="row">
+            <label for="cfg-gcp-location">GCP Location</label>
+            <input id="cfg-gcp-location" type="text" placeholder="us-central1" autocomplete="off" />
+          </div>
+          <div class="row">
+            <label for="cfg-engine-id">Agent Engine ID</label>
+            <input id="cfg-engine-id" type="text" placeholder="1234567890123456789" autocomplete="off" />
+          </div>
+          <div class="row">
+            <label for="cfg-sa-json">Service Account JSON <span class="muted small">(paste to replace)</span></label>
+            <textarea id="cfg-sa-json" rows="4" placeholder="Leave blank to keep existing key"></textarea>
+          </div>
+          <div class="row">
+            <label for="cfg-grounding">Google Search</label>
+            <input id="cfg-grounding" type="checkbox" style="width:auto;margin-top:4px" />
+          </div>
+          <div class="actions" style="margin-top:12px">
+            <button id="cfg-save">Update Configuration</button>
+            <p id="cfg-status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
+          </div>
+        </div>
+      </details>
+
       <!-- Live monitor -->
       <div id="monitor-panel" class="panel hidden">
         <div class="panel-heading">

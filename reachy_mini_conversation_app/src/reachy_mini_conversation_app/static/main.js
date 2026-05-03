@@ -468,6 +468,47 @@ async function init() {
       } catch { setStatusMessage(pStatus, "Failed to save.", "error"); }
     });
 
+    // Configuration panel
+    const configDetails = document.getElementById("config-details");
+    const cfgStatus = document.getElementById("cfg-status");
+    show(configDetails, true);
+    try {
+      const cfgResp = await fetchWithTimeout("/config", {}, 3000);
+      if (cfgResp.ok) {
+        const cfg = await cfgResp.json();
+        document.getElementById("cfg-gcp-project").value = cfg.gcp_project_id || "";
+        document.getElementById("cfg-gcp-location").value = cfg.gcp_location || "us-central1";
+        document.getElementById("cfg-engine-id").value = cfg.vertex_reasoning_engine_id || "";
+        document.getElementById("cfg-grounding").checked = !!cfg.google_search_grounding;
+      }
+    } catch {}
+    document.getElementById("cfg-save").addEventListener("click", async () => {
+      const gcpProject = (document.getElementById("cfg-gcp-project").value || "").trim();
+      const gcpLocation = (document.getElementById("cfg-gcp-location").value || "us-central1").trim();
+      const engineId = (document.getElementById("cfg-engine-id").value || "").trim();
+      const saJson = (document.getElementById("cfg-sa-json").value || "").trim();
+      const grounding = document.getElementById("cfg-grounding").checked;
+      if (!gcpProject || !engineId) {
+        setStatusMessage(cfgStatus, "Project ID and Engine ID are required.", "warn"); return;
+      }
+      if (saJson) {
+        try { JSON.parse(saJson); } catch {
+          setStatusMessage(cfgStatus, "Service Account JSON is not valid JSON.", "error"); return;
+        }
+      }
+      setStatusMessage(cfgStatus, "Saving…");
+      try {
+        const payload = { gcp_project_id: gcpProject, gcp_location: gcpLocation,
+          vertex_reasoning_engine_id: engineId, service_account_json: saJson || "{}",
+          voice: "", google_search_grounding: grounding };
+        await submitSetup(payload);
+        setStatusMessage(cfgStatus, "Configuration updated.", "ok");
+        document.getElementById("cfg-sa-json").value = "";
+      } catch (e) {
+        setStatusMessage(cfgStatus, `Failed: ${e.message || "unknown error"}`, "error");
+      }
+    });
+
     // Monitor panel
     show(monitorPanel, true);
     function appendTranscriptMessage({ role, content }) {
