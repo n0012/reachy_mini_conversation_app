@@ -632,6 +632,19 @@ class GeminiLiveHandler(AsyncStreamHandler):
                                     await self._mark_model_response_started()
                                     self._pending_assistant_transcript_chunks.append(transcript)
 
+                                # Log grounding metadata when Google Search was used
+                                if getattr(content, "grounding_metadata", None):
+                                    gm = content.grounding_metadata
+                                    queries = getattr(gm, "web_search_queries", None) or getattr(gm, "search_queries", None) or []
+                                    chunks = getattr(gm, "grounding_chunks", None) or []
+                                    sources = [getattr(c, "web", None) for c in chunks if getattr(c, "web", None)]
+                                    source_uris = [getattr(s, "uri", "?") for s in sources][:3]
+                                    logger.warning(
+                                        "Google Search used — queries=%r sources=%s",
+                                        list(queries),
+                                        source_uris,
+                                    )
+
                                 # Turn complete
                                 if content.turn_complete:
                                     await self._handle_turn_complete()
