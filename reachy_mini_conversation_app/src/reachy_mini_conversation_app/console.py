@@ -322,8 +322,8 @@ class LocalStream:
         def _voices_styles() -> JSONResponse:
             return JSONResponse(VOICE_STYLES)
 
-        # POST /voices/preview?voice=Sadachbia -> short audio sample as WAV
-        @self._settings_app.post("/voices/preview")
+        # GET /voices/preview?voice=Sadachbia -> short audio sample as WAV
+        @self._settings_app.get("/voices/preview")
         async def _voice_preview(voice: str = "Sadachbia") -> "Response":
             import wave, io
             project = os.environ.get("GCP_PROJECT_ID", "").strip()

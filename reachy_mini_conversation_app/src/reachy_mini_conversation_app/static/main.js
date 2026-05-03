@@ -108,7 +108,7 @@ async function applyVoice(voice) {
 async function previewVoice(voice) {
   const url = new URL("/voices/preview", window.location.origin);
   url.searchParams.set("voice", voice || "");
-  const resp = await fetchWithTimeout(url, { method: "POST" }, 15000);
+  const resp = await fetchWithTimeout(url, { method: "GET" }, 15000);
   if (!resp.ok) throw new Error("preview_failed");
   const blob = await resp.blob();
   const audio = new Audio(URL.createObjectURL(blob));
