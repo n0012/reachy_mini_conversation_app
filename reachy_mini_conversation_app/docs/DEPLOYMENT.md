@@ -118,12 +118,14 @@ export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 ## Updating the robot
 
 ```bash
-# One command from Mac (skips LFS GIF, installs into launcher venv)
+# One command from Mac (skips LFS GIF, reinstalls our package files only)
 sshpass -p 'root' ssh pollen@10.0.0.60 \
   "cd ~/dev/reachy_mini_conversation_app && \
    GIT_LFS_SKIP_SMUDGE=1 git pull && \
-   /venvs/apps_venv/bin/pip install -e reachy_mini_conversation_app/"
+   /venvs/apps_venv/bin/pip install --force-reinstall --no-deps reachy_mini_conversation_app/"
 ```
+
+**Why `--force-reinstall --no-deps` and not `-e`:** The editable install (`-e`) uses setuptools legacy mode which physically copies files to `site-packages` only at install time. New files added later (like `memory.py`, `location.py`) won't appear until you reinstall. `--force-reinstall --no-deps` refreshes only our package files without touching the heavy deps (torch, gradio, etc.).
 
 Pull upstream bug fixes:
 ```bash
