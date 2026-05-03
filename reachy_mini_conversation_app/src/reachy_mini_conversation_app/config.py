@@ -53,15 +53,36 @@ DEFAULT_PROFILES_DIRECTORY = _resolve_default_profiles_directory()
 
 # Voices supported by the Gemini Live API
 AVAILABLE_VOICES: list[str] = [
+    "Achird",
+    "Achernar",
+    "Algenib",
+    "Algieba",
+    "Alnilam",
     "Aoede",
+    "Autonoe",
+    "Callirrhoe",
     "Charon",
+    "Despina",
+    "Enceladus",
+    "Erinome",
     "Fenrir",
+    "Gacrux",
+    "Iapetus",
     "Kore",
+    "Laomedeia",
     "Leda",
     "Orus",
+    "Pulcherrima",
     "Puck",
+    "Rasalgethi",
     "Sadachbia",
+    "Sadaltager",
+    "Schedar",
+    "Sulafat",
+    "Umbriel",
+    "Vindemiatrix",
     "Zephyr",
+    "Zubenelgenubi",
 ]
 
 DEFAULT_MODEL_NAME = "gemini-3.1-flash-live-preview"
