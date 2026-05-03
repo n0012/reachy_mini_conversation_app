@@ -155,15 +155,17 @@ class VertexMemoryBackend:
                 None,
                 lambda: _api("POST", self._url("memories:retrieve"), {
                     "scope": scope,
-                    # camelCase per OpenClaw source — snake_case also accepted but camelCase is canonical
-                    "similaritySearchParams": {
-                        "searchQuery": MEMORY_SEARCH_QUERY,
-                        "topK": 20,
+                    "similarity_search_params": {
+                        "search_query": MEMORY_SEARCH_QUERY,
+                        "top_k": 20,
                     },
-                    "maxDistance": 1.5,
                 }),
             )
-            memories = resp.get("retrievedMemories", [])
+            all_memories = resp.get("retrievedMemories", [])
+            # Apply distance filter client-side (OpenClaw pattern — not a server param)
+            memories = [m for m in all_memories if m.get("distance") is None or m.get("distance") <= 1.5]
+            if len(memories) < len(all_memories):
+                logger.info("Memory: filtered %d low-quality results (maxDistance=1.5)", len(all_memories) - len(memories))
             if not memories:
                 logger.info("Memory: no stored memories for user=%r profile=%r", scope["user_id"], profile)
                 return ""
