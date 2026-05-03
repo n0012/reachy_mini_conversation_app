@@ -157,7 +157,8 @@ class VertexMemoryBackend:
                     "scope": scope,
                     "similarity_search_params": {
                         "search_query": MEMORY_SEARCH_QUERY,
-                        "top_k": 15,
+                        "top_k": 20,
+                        "max_distance": 1.5,  # filter out low-quality matches
                     },
                 }),
             )
@@ -176,17 +177,39 @@ class VertexMemoryBackend:
             logger.warning("Memory: load failed (user=%r profile=%r): %s", scope["user_id"], profile, exc)
             return ""
 
+    @staticmethod
+    def _is_meaningful_turn(turn: dict) -> bool:
+        """Filter out noise before sending to Memory Bank extraction.
+
+        Skips:
+        - Tool call logs (🛠️ prefix) and tool result JSON
+        - Very short turns (< 20 chars) — "okay", "yes", "what?"
+        - Turns that are just JSON objects (tool responses)
+        """
+        content = turn.get("content", "").strip()
+        if not content:
+            return False
+        if content.startswith("🛠️"):
+            return False
+        if content.startswith("{") and content.endswith("}"):
+            return False
+        if len(content) < 20:
+            return False
+        return True
+
     async def save_session(self, profile: str, transcript: list[dict], user_id: str | None = None) -> None:
         """Ingest transcript into Memory Bank. Awaited at session close."""
         if not transcript:
             return
+        meaningful = [t for t in transcript if self._is_meaningful_turn(t)]
         events = [
             {"content": {"role": t["role"], "parts": [{"text": t["content"]}]}}
-            for t in transcript
-            if t.get("content", "").strip()
+            for t in meaningful
         ]
         if not events:
             return
+        logger.info("Memory: sending %d/%d turns to extraction (filtered %d noise turns)",
+                    len(events), len(transcript), len(transcript) - len(events))
         scope = self._scope(profile, user_id)
         await asyncio.get_event_loop().run_in_executor(
             None,
