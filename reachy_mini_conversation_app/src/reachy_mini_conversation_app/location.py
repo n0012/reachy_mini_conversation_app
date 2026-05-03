@@ -35,15 +35,15 @@ def get_location_context() -> str:
         org      = data.get("org", "")
 
         if not city and not region:
-            logger.info("Location: lookup returned no city/region")
+            logger.warning("Location: lookup returned no city/region")
             return ""
 
         temp_unit = "Fahrenheit" if country in _FAHRENHEIT_COUNTRIES else "Celsius"
         location_str = ", ".join(filter(None, [city, region, country]))
 
-        logger.info(
-            "Location: inferred %s (tz=%s, units=%s, org=%s)",
-            location_str, timezone, temp_unit, org,
+        logger.warning(
+            "Location: inferred %s (tz=%s, units=%s)",
+            location_str, timezone, temp_unit,
         )
 
         lines = [
@@ -57,7 +57,7 @@ def get_location_context() -> str:
         return "\n".join(line for line in lines if line)
 
     except urllib.error.URLError as exc:
-        logger.info("Location: lookup failed (network): %s", exc)
+        logger.warning("Location: lookup failed (network): %s", exc)
         return ""
     except Exception as exc:
         logger.warning("Location: lookup failed unexpectedly: %s", exc)

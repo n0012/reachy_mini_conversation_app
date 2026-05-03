@@ -523,7 +523,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
         mcp_pool = MCPClientPool.from_profile(profile, config.PROFILES_DIRECTORY)
         memory_context, location_context, mcp_specs = await asyncio.gather(
             self._memory.load_context(profile),
-            asyncio.get_event_loop().run_in_executor(None, get_location_context),
+            asyncio.get_running_loop().run_in_executor(None, get_location_context),
             mcp_pool.connect_all(),
         )
         self._mcp_pool = mcp_pool
@@ -532,6 +532,12 @@ class GeminiLiveHandler(AsyncStreamHandler):
 
         # Combine contexts: location first (low-confidence defaults), memory second (overrides)
         extra_context = "\n\n".join(filter(None, [location_context, memory_context]))
+        logger.warning(
+            "Session context: location=%s, memory=%s chars, mcp_tools=%d",
+            "ok" if location_context else "empty",
+            len(memory_context),
+            len(mcp_specs),
+        )
         live_config = self._build_live_config(memory_context=extra_context)
 
         async with self.client.aio.live.connect(
