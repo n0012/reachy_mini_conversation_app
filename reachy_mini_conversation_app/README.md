@@ -283,13 +283,42 @@ SDK: `google-genai >= 1.0.0`. Auth: `google-auth` (ADC or service account key).
 
 ---
 
+## Live API tool behavior
+
+Source: [ai.google.dev/gemini-api/docs/live-api/tools](https://ai.google.dev/gemini-api/docs/live-api/tools)
+
+### What's supported on `gemini-3.1-flash-live-preview`
+
+| Feature | Supported |
+|---|---|
+| Google Search grounding | ✅ |
+| Function calling (synchronous) | ✅ |
+| Function calling (async / NON_BLOCKING) | ❌ not yet — Gemini 2.5 Flash only |
+| Google Maps, code execution, URL context | ❌ |
+
+### Scheduling (response-side hints)
+
+Even with synchronous calls, responses can include a `scheduling` field to tell the model *how* to announce results. Applied in `gemini_live.py:_handle_tool_result()`:
+
+| Scheduling | Behaviour | Used for |
+|---|---|---|
+| `SILENT` | Use result later without speaking | `remember`, `identify_user`, `do_nothing`, motion tools |
+| `WHEN_IDLE` | Wait for a natural conversational pause | `camera`, `task_status`, `task_cancel` |
+| `INTERRUPT` | Report immediately | explicit user-requested tools |
+
+### When NON_BLOCKING lands on 3.1
+
+Add `"behavior": "NON_BLOCKING"` to function declarations in `_tool_specs_to_gemini_declarations()`. The `BackgroundToolManager` and scheduling hints are already staged for this.
+
+---
+
 ## Known limitations
 
 | Issue | Root cause | Workaround |
 |---|---|---|
 | Session ends after ~10 min | Live API hard limit | Automatic restart; memory saves on close |
 | `google_search` results stale on re-ask | Grounding caches per topic per session | Use an MCP function tool for real-time endpoints instead |
-| Function calling blocks audio by default | Model waits for tool result | Add `"behavior": "NON_BLOCKING"` to function declarations in `_openai_tool_specs_to_gemini()` |
+| Function calling blocks audio by default | `gemini-3.1-flash-live-preview` only supports synchronous tool calls | Scheduling hints (`SILENT`/`WHEN_IDLE`/`INTERRUPT`) already set on responses. `NON_BLOCKING` declarations staged for when 3.1 supports async (currently Gemini 2.5 Flash only) |
 | `.env` lost on reboot | Launcher CWD quirk — must be at `/venvs/mini_daemon/.env` | Re-run the cp command after reboot (see Deploying section) |
 
 ---
@@ -303,6 +332,7 @@ SDK: `google-genai >= 1.0.0`. Auth: `google-auth` (ADC or service account key).
 | [Shubhamsaboo/openclaw-vertexai-memorybank](https://github.com/Shubhamsaboo/openclaw-vertexai-memorybank) | Vertex AI Memory Bank REST API surface, scoping model, noise filter thresholds |
 | [google-gemini/cookbook: Get_started_LiveAPI_tools.ipynb](https://github.com/google-gemini/cookbook/blob/main/quickstarts/Get_started_LiveAPI_tools.ipynb) | Confirms raw dict format for `google_search` + `function_declarations` together |
 | [google-gemini/gemini-skills: gemini-live-api-dev](https://github.com/google-gemini/gemini-skills/blob/main/skills/gemini-live-api-dev/SKILL.md) | Context compression for long sessions, `send_realtime_input` vs `send_client_content` |
+| [ai.google.dev: Live API tools](https://ai.google.dev/gemini-api/docs/live-api/tools) | Tool support matrix per model; `NON_BLOCKING` + scheduling (`INTERRUPT`/`WHEN_IDLE`/`SILENT`) — async calls only on Gemini 2.5 Flash, not yet on 3.1; Google Maps/code execution/URL context unsupported |
 
 ---
 
