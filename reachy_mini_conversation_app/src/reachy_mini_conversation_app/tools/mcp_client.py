@@ -42,9 +42,10 @@ class MCPToolSpec:
 @dataclass
 class _ServerConfig:
     name: str
-    transport: str                    # "stdio" | "sse"
+    transport: str                    # "stdio" | "sse" | "streamablehttp"
     command: list[str] = field(default_factory=list)   # stdio only
-    url: str = ""                     # sse only
+    url: str = ""                     # sse / streamablehttp
+    headers: dict = field(default_factory=dict)        # optional auth headers
 
 
 class MCPServerConnection:
@@ -66,6 +67,8 @@ class MCPServerConnection:
                 self._tools = await self._connect_stdio()
             elif self._cfg.transport == "sse":
                 self._tools = await self._connect_sse()
+            elif self._cfg.transport == "streamablehttp":
+                self._tools = await self._connect_streamablehttp()
             else:
                 logger.error("Unknown MCP transport: %s", self._cfg.transport)
         except Exception as exc:
@@ -93,8 +96,20 @@ class MCPServerConnection:
         from mcp import ClientSession
         from mcp.client.sse import sse_client
 
-        self._cm = sse_client(self._cfg.url)
+        self._cm = sse_client(self._cfg.url, headers=self._cfg.headers or {})
         read, write = await self._cm.__aenter__()
+        session = ClientSession(read, write)
+        await session.__aenter__()
+        await session.initialize()
+        self._session = session
+        return await self._list_tools()
+
+    async def _connect_streamablehttp(self) -> list[MCPToolSpec]:
+        from mcp import ClientSession
+        from mcp.client.streamable_http import streamablehttp_client
+
+        self._cm = streamablehttp_client(self._cfg.url, headers=self._cfg.headers or {})
+        read, write, _ = await self._cm.__aenter__()
         session = ClientSession(read, write)
         await session.__aenter__()
         await session.initialize()
@@ -166,8 +181,17 @@ class MCPClientPool:
         if not cfg_file.exists():
             return cls([])
         try:
+            import re as _re
+            def _expand(val: Any) -> Any:
+                if isinstance(val, str):
+                    return _re.sub(r'\$\{(\w+)\}', lambda m: os.environ.get(m.group(1), m.group(0)), val)
+                if isinstance(val, dict):
+                    return {k: _expand(v) for k, v in val.items()}
+                if isinstance(val, list):
+                    return [_expand(v) for v in val]
+                return val
             raw: list[dict[str, Any]] = json.loads(cfg_file.read_text())
-            configs = [_ServerConfig(**{k: v for k, v in entry.items()}) for entry in raw]
+            configs = [_ServerConfig(**{k: _expand(v) for k, v in entry.items()}) for entry in raw]
             logger.info("MCP: loaded %d server(s) for profile %r", len(configs), profile)
             return cls(configs)
         except Exception as exc:
