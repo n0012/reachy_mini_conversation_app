@@ -12,6 +12,7 @@ Fork of [`pollen-robotics/reachy_mini_conversation_app`](https://huggingface.co/
 | [philschmid.de/gemini-with-memory](https://www.philschmid.de/gemini-with-memory) | Semantic fact extraction vs transcript storage — informed the decision to store extracted facts, not raw logs |
 | [docs.openclaw.ai/concepts/memory](https://docs.openclaw.ai/concepts/memory) | `MEMORY.md` durable facts + daily notes structure — inspired the `FileMemoryBackend` fallback and the `remember` tool concept |
 | [ai.google.dev/gemini-api/docs/interactions](https://ai.google.dev/gemini-api/docs/interactions) | Researched as primary memory approach; ruled out — Interactions API is incompatible with the Live WebSocket API |
+| [google-gemini/cookbook: Get_started_LiveAPI_tools.ipynb](https://github.com/google-gemini/cookbook/blob/main/quickstarts/Get_started_LiveAPI_tools.ipynb) | Official Google example for Live API tools — confirms raw dict format for `google_search`, `function_declarations`, and `code_execution`; shows `google_search` triggers automatically on time-sensitive queries without explicit system prompt |
 
 ## Repo layout
 
