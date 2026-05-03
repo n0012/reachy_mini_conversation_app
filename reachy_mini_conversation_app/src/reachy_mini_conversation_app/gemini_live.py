@@ -28,6 +28,8 @@ from scipy.signal import resample
 from reachy_mini_conversation_app.config import config
 from reachy_mini_conversation_app.voices import resolve_voice
 from reachy_mini_conversation_app.memory import create_memory_backend
+from reachy_mini_conversation_app.tools.mcp_client import MCPClientPool
+from reachy_mini_conversation_app.tools.mcp_adapter import register_mcp_tools, deregister_mcp_tools
 from reachy_mini_conversation_app.prompts import get_session_voice, get_session_instructions, get_session_grounding
 from reachy_mini_conversation_app.tools.core_tools import (
     ToolDependencies,
@@ -515,7 +517,17 @@ class GeminiLiveHandler(AsyncStreamHandler):
         """Establish and manage a single Gemini Live session."""
         profile = self.deps.active_profile or "default"
         self._session_transcript = []  # reset for new session
-        memory_context = await self._memory.load_context(profile)
+
+        # Load memory context and MCP tools concurrently
+        mcp_pool = MCPClientPool.from_profile(profile, config.PROFILES_DIRECTORY)
+        memory_context, mcp_specs = await asyncio.gather(
+            self._memory.load_context(profile),
+            mcp_pool.connect_all(),
+        )
+        self._mcp_pool = mcp_pool
+        if mcp_specs:
+            register_mcp_tools(mcp_pool, mcp_specs)
+
         live_config = self._build_live_config(memory_context=memory_context)
 
         async with self.client.aio.live.connect(
@@ -692,6 +704,12 @@ class GeminiLiveHandler(AsyncStreamHandler):
             asyncio.create_task(
                 self._memory.save_session(profile, self._session_transcript)
             )
+
+        # Clean up MCP connections and deregister tools
+        if hasattr(self, "_mcp_pool") and self._mcp_pool:
+            deregister_mcp_tools(self._mcp_pool)
+            await self._mcp_pool.close()
+            self._mcp_pool = None
 
         # Clear remaining items in the output queue
         while not self.output_queue.empty():
