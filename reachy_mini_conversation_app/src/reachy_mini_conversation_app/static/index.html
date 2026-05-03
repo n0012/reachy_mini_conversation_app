@@ -202,6 +202,17 @@
             <button id="cfg-save">Update Configuration</button>
             <p id="cfg-status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
           </div>
+
+          <div style="border-top:1px solid var(--border);margin-top:18px;padding-top:14px">
+            <p class="eyebrow" style="margin:0 0 4px">Environment Variables</p>
+            <p class="muted small" style="margin:0 0 12px">Tokens and secrets referenced by MCP servers via <code>${VAR_NAME}</code></p>
+            <div id="env-vars-list" style="display:flex;flex-direction:column;gap:8px"></div>
+            <button id="env-add-btn" class="ghost" style="margin-top:10px;font-size:12px;padding:7px 12px">+ Add variable</button>
+            <div class="actions" style="margin-top:10px">
+              <button id="env-save-btn">Save variables</button>
+              <p id="env-status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
+            </div>
+          </div>
         </div>
       </details>
 

@@ -522,6 +522,81 @@ async function init() {
       }
     });
 
+    // Environment variables editor
+    const envList = document.getElementById("env-vars-list");
+    const envStatus = document.getElementById("env-status");
+    const pendingDeletes = new Set();
+
+    function makeEnvRow(key = "", isExisting = false) {
+      const row = document.createElement("div");
+      row.style.cssText = "display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center";
+      const keyInput = document.createElement("input");
+      keyInput.type = "text"; keyInput.placeholder = "VAR_NAME";
+      keyInput.value = key; keyInput.readOnly = isExisting;
+      keyInput.style.cssText = isExisting ? "opacity:0.7" : "";
+      const valInput = document.createElement("input");
+      valInput.type = "password"; valInput.placeholder = isExisting ? "••••••• (leave blank to keep)" : "value";
+      valInput.dataset.key = key;
+      const delBtn = document.createElement("button");
+      delBtn.className = "ghost"; delBtn.textContent = "✕";
+      delBtn.style.cssText = "margin:0;padding:6px 10px;font-size:12px;color:var(--error)";
+      delBtn.addEventListener("click", () => {
+        if (isExisting) pendingDeletes.add(key);
+        row.remove();
+      });
+      row.appendChild(keyInput); row.appendChild(valInput); row.appendChild(delBtn);
+      row._getEntry = () => ({
+        key: keyInput.value.trim(),
+        value: valInput.value.trim(),
+        delete: false,
+      });
+      return row;
+    }
+
+    try {
+      const envResp = await fetchWithTimeout("/config/env", {}, 3000);
+      if (envResp.ok) {
+        const vars = await envResp.json();
+        for (const v of vars) envList.appendChild(makeEnvRow(v.key, true));
+      }
+    } catch {}
+
+    document.getElementById("env-add-btn").addEventListener("click", () => {
+      envList.appendChild(makeEnvRow("", false));
+    });
+
+    document.getElementById("env-save-btn").addEventListener("click", async () => {
+      const entries = [];
+      for (const del of pendingDeletes) entries.push({ key: del, value: "", delete: true });
+      for (const row of envList.children) {
+        if (row._getEntry) {
+          const e = row._getEntry();
+          if (e.key) entries.push(e);
+        }
+      }
+      setStatusMessage(envStatus, "Saving…");
+      try {
+        const resp = await fetch("/config/env", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(entries),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (resp.ok) {
+          pendingDeletes.clear();
+          setStatusMessage(envStatus, "Saved.", "ok");
+          // Clear value fields (values are write-only)
+          for (const row of envList.children) {
+            const inp = row.querySelector('input[type="password"]');
+            if (inp) inp.value = "";
+          }
+        } else {
+          setStatusMessage(envStatus, data.error || "Failed.", "error");
+        }
+      } catch (e) {
+        setStatusMessage(envStatus, `Failed: ${e.message}`, "error");
+      }
+    });
+
     // Monitor panel
     show(monitorPanel, true);
     const ACTIVITY_ROLES = new Set(["tool", "search", "memory"]);

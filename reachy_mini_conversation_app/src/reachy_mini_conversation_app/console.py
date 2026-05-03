@@ -314,6 +314,60 @@ class LocalStream:
                 "google_search_grounding": os.environ.get("GOOGLE_SEARCH_GROUNDING", "") == "1",
             })
 
+        # Keys managed elsewhere — excluded from the custom env var editor
+        _MANAGED_KEYS = {
+            "GEMINI_API_KEY", "GCP_PROJECT_ID", "GCP_LOCATION",
+            "VERTEX_REASONING_ENGINE_ID", "GOOGLE_APPLICATION_CREDENTIALS",
+            "GOOGLE_SEARCH_GROUNDING", "REACHY_MINI_CUSTOM_PROFILE",
+            "REACHY_MINI_PROFILES_OVERRIDE", "REACHY_MINI_EXTERNAL_PROFILES_DIRECTORY",
+            "REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY", "MODEL_NAME",
+        }
+
+        # GET /config/env -> list custom env vars (keys only, values masked)
+        @self._settings_app.get("/config/env")
+        def _get_env_vars() -> JSONResponse:
+            try:
+                lines = REACHY_MINI_ENV_PATH.read_text(encoding="utf-8").splitlines() if REACHY_MINI_ENV_PATH.exists() else []
+                result = []
+                for ln in lines:
+                    ln = ln.strip()
+                    if not ln or ln.startswith("#") or "=" not in ln:
+                        continue
+                    key, _, _ = ln.partition("=")
+                    key = key.strip()
+                    if key and key not in _MANAGED_KEYS:
+                        result.append({"key": key, "set": True})
+                return JSONResponse(result)
+            except Exception:
+                return JSONResponse([])
+
+        # POST /config/env -> save/delete custom env vars
+        @self._settings_app.post("/config/env")
+        async def _save_env_vars(request: Request) -> JSONResponse:
+            try:
+                updates: list[dict] = await request.json()
+            except Exception:
+                return JSONResponse({"ok": False, "error": "invalid_json"}, status_code=400)
+            try:
+                for entry in updates:
+                    key = (entry.get("key") or "").strip()
+                    value = (entry.get("value") or "").strip()
+                    delete = bool(entry.get("delete", False))
+                    if not key or key in _MANAGED_KEYS:
+                        continue
+                    if delete:
+                        # Remove from env and .env file
+                        os.environ.pop(key, None)
+                        if REACHY_MINI_ENV_PATH.exists():
+                            lines = REACHY_MINI_ENV_PATH.read_text(encoding="utf-8").splitlines()
+                            lines = [ln for ln in lines if not ln.strip().startswith(f"{key}=")]
+                            REACHY_MINI_ENV_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+                    elif value:
+                        self._persist_env_values({key: value})
+                return JSONResponse({"ok": True})
+            except Exception as e:
+                return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
         # GET /voices -> available voices with style descriptions
         @self._settings_app.get("/voices")
         def _voices_static() -> JSONResponse:
