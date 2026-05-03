@@ -19,9 +19,6 @@ from .config import (
     get_default_voice_for_backend,
     get_available_voices_for_backend,
 )
-from .openai_realtime import OpenaiRealtimeHandler
-
-
 if TYPE_CHECKING:
     from .gemini_live import GeminiLiveHandler
 from .headless_personality import (
@@ -40,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 def mount_personality_routes(
     app: FastAPI,
-    handler: OpenaiRealtimeHandler | GeminiLiveHandler,
+    handler: GeminiLiveHandler,
     get_loop: Callable[[], asyncio.AbstractEventLoop | None],
     *,
     persist_personality: Callable[[Optional[str]], None] | None = None,
