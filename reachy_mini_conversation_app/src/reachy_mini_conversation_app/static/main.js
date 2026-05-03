@@ -239,7 +239,6 @@ async function init() {
       const engineId = (document.getElementById("setup-engine-id").value || "").trim();
       const saJson = (document.getElementById("setup-sa-json").value || "").trim();
       const voice = setupVoice.value.split(" — ")[0];
-      const grounding = document.getElementById("setup-grounding").checked;
 
       if (!geminiKey || !gcpProject || !engineId || !saJson) {
         setStatusMessage(setupStatusEl, "Please fill in all required fields.", "warn");
@@ -254,8 +253,7 @@ async function init() {
       setupSubmitBtn.disabled = true;
       try {
         await submitSetup({ gemini_api_key: geminiKey, gcp_project_id: gcpProject, gcp_location: gcpLocation,
-          vertex_reasoning_engine_id: engineId, service_account_json: saJson,
-          voice, google_search_grounding: grounding });
+          vertex_reasoning_engine_id: engineId, service_account_json: saJson, voice });
         setStatusMessage(setupStatusEl, "Setup complete! Loading…", "ok");
         await sleep(800);
         window.location.reload();
@@ -292,6 +290,8 @@ async function init() {
     const pApplyVoice = document.getElementById("apply-voice");
     const pPreviewVoice = document.getElementById("preview-voice");
     const pVoiceStyle = document.getElementById("voice-style-label");
+    const pGrounding = document.getElementById("grounding-check");
+    const pMcp = document.getElementById("mcp-ta");
     const pAvail = document.getElementById("tools-available");
 
     const AUTO_WITH = { dance: ["stop_dance"], play_emotion: ["stop_emotion"] };
@@ -374,6 +374,8 @@ async function init() {
       pVoice.value = data.uses_default_voice ? activeVoice : loadedVoice;
       updateVoiceStyle();
       renderToolCheckboxes(data.available_tools, data.enabled_tools);
+      pGrounding.checked = !!data.grounding;
+      pMcp.value = data.mcp_servers || "";
       const idx = selected.lastIndexOf("/");
       pName.value = idx >= 0 ? selected.slice(idx + 1) : "";
       setStatusMessage(pStatus, `Loaded ${selected}`);
@@ -456,6 +458,8 @@ async function init() {
           instructions: pInstr.value || "",
           tools_text: pTools.value || "",
           voice: pVoice.value.split(" — ")[0] || pVoice.options[0]?.value || "",
+          grounding: pGrounding.checked,
+          mcp_servers: pMcp.value || "",
         });
         pSelect.innerHTML = "";
         for (const n of res.choices) {
@@ -480,7 +484,6 @@ async function init() {
         document.getElementById("cfg-gcp-project").value = cfg.gcp_project_id || "";
         document.getElementById("cfg-gcp-location").value = cfg.gcp_location || "us-central1";
         document.getElementById("cfg-engine-id").value = cfg.vertex_reasoning_engine_id || "";
-        document.getElementById("cfg-grounding").checked = !!cfg.google_search_grounding;
       }
     } catch {}
     document.getElementById("cfg-save").addEventListener("click", async () => {
@@ -489,7 +492,6 @@ async function init() {
       const gcpLocation = (document.getElementById("cfg-gcp-location").value || "us-central1").trim();
       const engineId = (document.getElementById("cfg-engine-id").value || "").trim();
       const saJson = (document.getElementById("cfg-sa-json").value || "").trim();
-      const grounding = document.getElementById("cfg-grounding").checked;
       if (!gcpProject || !engineId) {
         setStatusMessage(cfgStatus, "Project ID and Engine ID are required.", "warn"); return;
       }
@@ -502,7 +504,7 @@ async function init() {
       try {
         const payload = { gemini_api_key: geminiKey, gcp_project_id: gcpProject,
           gcp_location: gcpLocation, vertex_reasoning_engine_id: engineId,
-          service_account_json: saJson || "{}", voice: "", google_search_grounding: grounding };
+          service_account_json: saJson || "{}", voice: "" };
         await submitSetup(payload);
         setStatusMessage(cfgStatus, "Configuration updated.", "ok");
         document.getElementById("cfg-gemini-key").value = "";

@@ -102,6 +102,17 @@ def mount_personality_routes(
                 v = vf.read_text(encoding="utf-8").strip()
                 voice = v or get_default_voice_for_backend()
                 uses_default_voice = not bool(v)
+        grounding = False
+        mcp_servers_text = ""
+        if name != DEFAULT_OPTION:
+            pdir = resolve_profile_dir(name)
+            gf = pdir / "grounding.txt"
+            if gf.exists():
+                gc = gf.read_text(encoding="utf-8").strip().lower()
+                grounding = gc in {"true", "1", "yes", "google_search=true"}
+            mf = pdir / "mcp_servers.json"
+            if mf.exists():
+                mcp_servers_text = mf.read_text(encoding="utf-8").strip()
         avail = available_tools_for(name)
         enabled = [ln.strip() for ln in tools_txt.splitlines() if ln.strip() and not ln.strip().startswith("#")]
         return {
@@ -111,6 +122,8 @@ def mount_personality_routes(
             "uses_default_voice": uses_default_voice,
             "available_tools": avail,
             "enabled_tools": enabled,
+            "grounding": grounding,
+            "mcp_servers": mcp_servers_text,
         }
 
     @app.post("/personalities/save")
@@ -128,19 +141,20 @@ def mount_personality_routes(
             if raw.get("voice") is not None
             else get_default_voice_for_backend()
         )
+        grounding = bool(raw.get("grounding", False))
+        mcp_servers_json = str(raw.get("mcp_servers", "") or "")
 
         name_s = _sanitize_name(name)
         if not name_s:
             return JSONResponse({"ok": False, "error": "invalid_name"}, status_code=400)  # type: ignore
         try:
             logger.info(
-                "Headless save: name=%r voice=%r instr_len=%d tools_len=%d",
-                name_s,
-                voice,
-                len(instructions),
-                len(tools_text),
+                "Headless save: name=%r voice=%r grounding=%s instr_len=%d tools_len=%d",
+                name_s, voice, grounding, len(instructions), len(tools_text),
             )
-            _write_profile(name_s, instructions, tools_text, voice or get_default_voice_for_backend())
+            _write_profile(name_s, instructions, tools_text,
+                           voice or get_default_voice_for_backend(),
+                           grounding=grounding, mcp_servers_json=mcp_servers_json)
             value = f"user_personalities/{name_s}"
             choices = [DEFAULT_OPTION, *list_personalities()]
             return {"ok": True, "value": value, "choices": choices}

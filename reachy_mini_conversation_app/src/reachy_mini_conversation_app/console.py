@@ -392,7 +392,6 @@ class LocalStream:
             vertex_reasoning_engine_id: str
             service_account_json: str
             voice: str = "Sadachbia"
-            google_search_grounding: bool = True
 
         @self._settings_app.post("/setup")
         def _setup(payload: SetupPayload) -> JSONResponse:
@@ -419,8 +418,6 @@ class LocalStream:
                 }
                 if payload.gemini_api_key.strip():
                     updates["GEMINI_API_KEY"] = payload.gemini_api_key.strip()
-                if payload.google_search_grounding:
-                    updates["GOOGLE_SEARCH_GROUNDING"] = "1"
                 self._persist_env_values(updates)
 
                 # Set voice in default profile

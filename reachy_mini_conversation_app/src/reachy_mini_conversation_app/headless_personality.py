@@ -96,9 +96,27 @@ def available_tools_for(selected: str) -> List[str]:
     return sorted(set(shared + local))
 
 
-def _write_profile(name_s: str, instructions: str, tools_text: str, voice: str = "cedar") -> None:
+def _write_profile(
+    name_s: str,
+    instructions: str,
+    tools_text: str,
+    voice: str = "cedar",
+    grounding: bool = False,
+    mcp_servers_json: str = "",
+) -> None:
     target_dir = _profiles_root() / "user_personalities" / name_s
     target_dir.mkdir(parents=True, exist_ok=True)
     (target_dir / "instructions.txt").write_text(instructions.strip() + "\n", encoding="utf-8")
     (target_dir / "tools.txt").write_text((tools_text or "").strip() + "\n", encoding="utf-8")
     (target_dir / "voice.txt").write_text((voice or "cedar").strip() + "\n", encoding="utf-8")
+    grounding_file = target_dir / "grounding.txt"
+    if grounding:
+        grounding_file.write_text("google_search=true\n", encoding="utf-8")
+    elif grounding_file.exists():
+        grounding_file.unlink()
+    mcp_file = target_dir / "mcp_servers.json"
+    mcp_text = (mcp_servers_json or "").strip()
+    if mcp_text and mcp_text != "[]":
+        mcp_file.write_text(mcp_text + "\n", encoding="utf-8")
+    elif mcp_file.exists():
+        mcp_file.unlink()
