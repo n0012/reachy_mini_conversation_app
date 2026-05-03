@@ -13,6 +13,8 @@ Fork of [`pollen-robotics/reachy_mini_conversation_app`](https://huggingface.co/
 | [docs.openclaw.ai/concepts/memory](https://docs.openclaw.ai/concepts/memory) | `MEMORY.md` durable facts + daily notes structure — inspired the `FileMemoryBackend` fallback and the `remember` tool concept |
 | [ai.google.dev/gemini-api/docs/interactions](https://ai.google.dev/gemini-api/docs/interactions) | Researched as primary memory approach; ruled out — Interactions API is incompatible with the Live WebSocket API |
 | [google-gemini/cookbook: Get_started_LiveAPI_tools.ipynb](https://github.com/google-gemini/cookbook/blob/main/quickstarts/Get_started_LiveAPI_tools.ipynb) | Official Google example for Live API tools — confirms raw dict format for `google_search`, `function_declarations`, and `code_execution`; shows `google_search` triggers automatically on time-sensitive queries without explicit system prompt |
+| [google-gemini/gemini-skills: gemini-live-api-dev SKILL.md](https://github.com/google-gemini/gemini-skills/blob/main/skills/gemini-live-api-dev/SKILL.md) | Official Live API skill — recommends `gemini-3.1-flash-live-preview`, 128k context, 10-minute session limit, enable context compression for sessions >15min, use `send_realtime_input` not `send_client_content`, send `audioStreamEnd` when mic pauses |
+| [ai.google.dev/gemini-api/docs/live-tools](https://ai.google.dev/gemini-api/docs/live-tools.md.txt) | Live tools reference — confirms `{"google_search": {}}` prevents hallucinations; function calling is **synchronous only** in Live API (model blocks until tool result returned); `NON_BLOCKING` behavior available for async; Google Maps, code execution, URL context not supported |
 
 ## Repo layout
 
@@ -285,11 +287,21 @@ Phase-specific checks:
 - **Phase 4**: have a conversation; restart; ask "what did we talk about?"; expect recall from Memory Bank
 - **Phase 5**: configure `mcp_servers.json` with filesystem server; ask Reachy to read a file
 
+## Known Limitations & Future Work
+
+| Issue | Root cause | Potential fix |
+|---|---|---|
+| Live sports scores go stale on re-ask | `google_search` grounding caches results within a session — re-checking doesn't re-fetch | Phase 6: MCP sports API tool (MLB/ESPN) that hits a live endpoint on every call |
+| Session ends after ~10 minutes | Live API hard limit | Session restart is automatic; memory save on close handles continuity |
+| `google_search` results not re-fetched mid-session | By design — grounding fetches once per topic per session | For real-time monitoring, use function-calling MCP tool instead of grounding |
+| Model version | `gemini-3.1-flash-live-preview` — `gemini-2.5-flash-preview-native-audio-dialog` has richer native audio | Test by setting `MODEL_NAME` env var |
+| Function calling is synchronous | Live API limitation — model blocks until tool result returned | Use `NON_BLOCKING` behavior for long-running tools |
+
 ## Risks
 
 | Risk | Status |
 |---|---|
-| Google Search + function_declarations coexistence in Live API | Phase 0 spike |
-| Vertex AI Memory Bank Reasoning Engine setup / exact CLI | Phase 0 spike |
+| Google Search + function_declarations coexistence in Live API | ✅ Works — confirmed in production |
+| Vertex AI Memory Bank Reasoning Engine setup / exact CLI | ✅ Resolved — engine `YOUR_ENGINE_ID` on `losiern-vibe` |
 | MCP stdio servers on aarch64 Linux (arm64 binaries) | Use SSE transport for Node-based servers |
-| DHCP fix (.137 → .60) | Fix wlan0 MAC in router: `88:a2:9e:8c:bb:e8` |
+| DHCP fix (.137 → .60) | ✅ Fixed — wlan0 MAC `88:a2:9e:8c:bb:e8` in router |

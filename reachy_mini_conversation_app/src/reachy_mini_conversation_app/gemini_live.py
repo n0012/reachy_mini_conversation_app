@@ -348,7 +348,8 @@ class GeminiLiveHandler(AsyncStreamHandler):
         tool_specs = get_tool_specs()
         function_declarations = _openai_tool_specs_to_gemini(tool_specs)
 
-        # google_search goes first per Google's docs — signals model to prefer it
+        # google_search is correct for current models (gemini-3.1+).
+        # google_search_retrieval is for older models only — docs confirm this.
         tools_config: List[Dict[str, Any]] = []
         if get_session_grounding():
             tools_config.append({"google_search": {}})
