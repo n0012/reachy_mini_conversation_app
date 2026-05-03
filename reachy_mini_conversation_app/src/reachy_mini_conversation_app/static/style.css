@@ -489,7 +489,7 @@ button.ghost:hover { border-color: rgba(94, 240, 193, 0.4); }
 }
 #activity-log {
   overflow-y: auto;
-  max-height: 140px;
+  max-height: 200px;
   display: flex;
   flex-direction: column;
   gap: 4px;
