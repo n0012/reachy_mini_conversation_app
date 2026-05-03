@@ -172,7 +172,7 @@ class VertexMemoryBackend:
                 return ""
             logger.info("Memory: injecting %d facts (user=%r profile=%r)", len(facts), scope["user_id"], profile)
             bullet_list = "\n".join(f"- {f}" for f in facts)
-            return f"## What I remember about {scope['user_id']}\n{bullet_list}"
+            return f"<vertex_memory_bank>\n{bullet_list}\n</vertex_memory_bank>"
         except Exception as exc:
             logger.warning("Memory: load failed (user=%r profile=%r): %s", scope["user_id"], profile, exc)
             return ""
@@ -183,8 +183,9 @@ class VertexMemoryBackend:
 
         Skips:
         - Tool call logs (🛠️ prefix) and tool result JSON
-        - Very short turns (< 20 chars) — "okay", "yes", "what?"
+        - Very short user turns (< 20 chars) — "okay", "yes", "what?"
         - Turns that are just JSON objects (tool responses)
+        Matches OpenClaw thresholds: ≥20 chars for user, ≥100 chars total across the pair.
         """
         content = turn.get("content", "").strip()
         if not content:
@@ -193,7 +194,7 @@ class VertexMemoryBackend:
             return False
         if content.startswith("{") and content.endswith("}"):
             return False
-        if len(content) < 20:
+        if turn.get("role") == "user" and len(content) < 20:
             return False
         return True
 
