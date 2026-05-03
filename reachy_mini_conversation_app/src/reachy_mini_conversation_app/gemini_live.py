@@ -9,6 +9,7 @@ Audio formats (per Gemini Live API spec):
 """
 
 import json
+import os
 import uuid
 import base64
 import random
