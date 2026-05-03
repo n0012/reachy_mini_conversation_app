@@ -155,11 +155,12 @@ class VertexMemoryBackend:
                 None,
                 lambda: _api("POST", self._url("memories:retrieve"), {
                     "scope": scope,
-                    "similarity_search_params": {
-                        "search_query": MEMORY_SEARCH_QUERY,
-                        "top_k": 20,
-                        "max_distance": 1.5,  # filter out low-quality matches
+                    # camelCase per OpenClaw source — snake_case also accepted but camelCase is canonical
+                    "similaritySearchParams": {
+                        "searchQuery": MEMORY_SEARCH_QUERY,
+                        "topK": 20,
                     },
+                    "maxDistance": 1.5,
                 }),
             )
             memories = resp.get("retrievedMemories", [])
@@ -171,8 +172,8 @@ class VertexMemoryBackend:
                 logger.info("Memory: retrieved %d entries but none had facts", len(memories))
                 return ""
             logger.info("Memory: injecting %d facts (user=%r profile=%r)", len(facts), scope["user_id"], profile)
-            bullet_list = "\n".join(f"- {f}" for f in facts)
-            return f"<vertex_memory_bank>\n{bullet_list}\n</vertex_memory_bank>"
+            numbered = "\n".join(f"{i+1}. {f}" for i, f in enumerate(facts))
+            return f"<vertex_memory_bank>\nRelevant memories from prior sessions:\n{numbered}\n</vertex_memory_bank>"
         except Exception as exc:
             logger.warning("Memory: load failed (user=%r profile=%r): %s", scope["user_id"], profile, exc)
             return ""
@@ -199,22 +200,39 @@ class VertexMemoryBackend:
         return True
 
     async def save_session(self, profile: str, transcript: list[dict], user_id: str | None = None) -> None:
-        """Ingest transcript into Memory Bank. Awaited at session close."""
+        """Ingest transcript into Memory Bank at session close.
+
+        Sends the full meaningful conversation (noise-filtered) for extraction.
+        OpenClaw sends only the last pair per turn; we send the full session since
+        Gemini Live is a continuous voice session, not a turn-by-turn chat.
+        """
         if not transcript:
             return
         meaningful = [t for t in transcript if self._is_meaningful_turn(t)]
+
+        # Apply OpenClaw total-length noise filter
+        user_turns = [t for t in meaningful if t.get("role") == "user"]
+        assistant_turns = [t for t in meaningful if t.get("role") != "user"]
+        user_len = sum(len(t.get("content", "")) for t in user_turns)
+        total_len = sum(len(t.get("content", "")) for t in meaningful)
+        if user_len < 20 or total_len < 100:
+            logger.info("Memory: skipped — too short (user=%d, total=%d)", user_len, total_len)
+            return
+
+        # Truncate each turn to 4000 chars (OpenClaw pattern)
         events = [
-            {"content": {"role": t["role"], "parts": [{"text": t["content"]}]}}
+            {"content": {"role": t["role"], "parts": [{"text": t["content"][:4000]}]}}
             for t in meaningful
         ]
-        if not events:
-            return
-        logger.info("Memory: sending %d/%d turns to extraction (filtered %d noise turns)",
-                    len(events), len(transcript), len(transcript) - len(events))
+        logger.info("Memory: sending %d/%d turns to extraction (user=%d chars, total=%d chars)",
+                    len(events), len(transcript), user_len, total_len)
         scope = self._scope(profile, user_id)
         await asyncio.get_event_loop().run_in_executor(
             None,
-            lambda: self._generate_memories(scope, {"direct_contents_source": {"events": events}}),
+            lambda: self._generate_memories(scope, {
+                "direct_contents_source": {"events": events},
+                "revision_labels": {"source": "session"},
+            }),
         )
 
     async def remember(self, profile: str, fact: str, user_id: str | None = None) -> None:
@@ -223,7 +241,8 @@ class VertexMemoryBackend:
         await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: self._generate_memories(scope, {
-                "direct_memories_source": {"direct_memories": [{"fact": fact}]}
+                "direct_memories_source": {"direct_memories": [{"fact": fact}]},
+                "revision_labels": {"source": "remember-tool"},
             }),
         )
 
