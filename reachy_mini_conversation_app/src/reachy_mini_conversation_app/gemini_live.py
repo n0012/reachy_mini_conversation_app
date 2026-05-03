@@ -233,6 +233,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
         snapshot = list(self._session_transcript)
         logger.info("Memory: mid-session save at turn %d (user=%r profile=%r)", self._turn_count, user_id, profile)
         await self._memory.save_session(profile, snapshot, user_id=user_id)
+        await self.output_queue.put(AdditionalOutputs({"role": "memory", "content": "memories saved (mid-session)"}))
 
     async def apply_personality(self, profile: str | None) -> str:
         """Apply a new personality (profile) at runtime.
@@ -599,6 +600,8 @@ class GeminiLiveHandler(AsyncStreamHandler):
             len(memory_context),
             len(mcp_specs),
         )
+        if memory_context:
+            await self.output_queue.put(AdditionalOutputs({"role": "memory", "content": "memories loaded"}))
         live_config = self._build_live_config(memory_context=extra_context)
 
         async with self.client.aio.live.connect(

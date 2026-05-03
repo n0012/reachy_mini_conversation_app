@@ -190,6 +190,8 @@ async function init() {
   const monitorChip = document.getElementById("monitor-chip");
   const transcriptLog = document.getElementById("transcript-log");
   const transcriptEmpty = document.getElementById("transcript-empty");
+  const activityLog = document.getElementById("activity-log");
+  const activityEmpty = document.getElementById("activity-empty");
   const setupStatusEl = document.getElementById("setup-status");
   const setupSubmitBtn = document.getElementById("setup-submit");
   const setupVoice = document.getElementById("setup-voice");
@@ -522,19 +524,30 @@ async function init() {
 
     // Monitor panel
     show(monitorPanel, true);
+    const ACTIVITY_ROLES = new Set(["tool", "search", "memory"]);
     function appendTranscriptMessage({ role, content }) {
       if (!content || !content.trim()) return;
-      transcriptEmpty.style.display = "none";
-      const div = document.createElement("div");
-      const roleClass = role === "user" ? "user" : role === "tool" ? "tool" : role === "search" ? "search" : "assistant";
-      div.className = `transcript-msg ${roleClass}`;
-      const label = document.createElement("div"); label.className = "transcript-role";
-      const roleLabel = role === "user" ? "You" : role === "tool" ? "🛠 Tool" : role === "search" ? "🔍 Search" : "Reachy";
-      label.textContent = roleLabel;
-      const text = document.createElement("div"); text.textContent = content;
-      div.appendChild(label); div.appendChild(text);
-      transcriptLog.appendChild(div);
-      transcriptLog.scrollTop = transcriptLog.scrollHeight;
+      if (ACTIVITY_ROLES.has(role)) {
+        // Activity log
+        activityEmpty.style.display = "none";
+        const row = document.createElement("div");
+        row.className = "activity-row";
+        const icon = role === "tool" ? "🛠" : role === "search" ? "🔍" : "🧠";
+        row.textContent = `${icon} ${content}`;
+        activityLog.appendChild(row);
+        activityLog.scrollTop = activityLog.scrollHeight;
+      } else {
+        // Conversation log
+        transcriptEmpty.style.display = "none";
+        const div = document.createElement("div");
+        div.className = `transcript-msg ${role === "user" ? "user" : "assistant"}`;
+        const label = document.createElement("div"); label.className = "transcript-role";
+        label.textContent = role === "user" ? "You" : "Reachy";
+        const text = document.createElement("div"); text.textContent = content;
+        div.appendChild(label); div.appendChild(text);
+        transcriptLog.appendChild(div);
+        transcriptLog.scrollTop = transcriptLog.scrollHeight;
+      }
     }
     const es = new EventSource("/stream/transcript");
     es.onmessage = (event) => { try { appendTranscriptMessage(JSON.parse(event.data)); } catch {} };
