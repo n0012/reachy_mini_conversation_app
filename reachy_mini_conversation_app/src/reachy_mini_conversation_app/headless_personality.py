@@ -45,15 +45,8 @@ def list_personalities() -> List[str]:
     try:
         if root.exists():
             for p in sorted(root.iterdir()):
-                if p.name == "user_personalities":
-                    continue
                 if p.is_dir() and (p / "instructions.txt").exists():
                     names.append(p.name)
-        udir = root / "user_personalities"
-        if udir.exists():
-            for p in sorted(udir.iterdir()):
-                if p.is_dir() and (p / "instructions.txt").exists():
-                    names.append(f"user_personalities/{p.name}")
     except Exception:
         pass
     return names
@@ -105,7 +98,7 @@ def _write_profile(
     mcp_servers_json: str = "",
     memory: bool = False,
 ) -> None:
-    target_dir = _profiles_root() / "user_personalities" / name_s
+    target_dir = _profiles_root() / name_s
     target_dir.mkdir(parents=True, exist_ok=True)
     (target_dir / "instructions.txt").write_text(instructions.strip() + "\n", encoding="utf-8")
     (target_dir / "tools.txt").write_text((tools_text or "").strip() + "\n", encoding="utf-8")

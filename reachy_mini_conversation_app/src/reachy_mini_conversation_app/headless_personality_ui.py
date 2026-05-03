@@ -162,7 +162,7 @@ def mount_personality_routes(
                            voice or get_default_voice_for_backend(),
                            grounding=grounding, mcp_servers_json=mcp_servers_json,
                            memory=memory)
-            value = f"user_personalities/{name_s}"
+            value = name_s
             choices = [DEFAULT_OPTION, *list_personalities()]
             return {"ok": True, "value": value, "choices": choices}
         except Exception as e:
@@ -207,7 +207,7 @@ def mount_personality_routes(
                 "Headless save_raw: name=%r voice=%r instr_len=%d tools_len=%d", name_s, v, len(instr), len(tools)
             )
             _write_profile(name_s, instr, tools, v)
-            value = f"user_personalities/{name_s}"
+            value = name_s
             choices = [DEFAULT_OPTION, *list_personalities()]
             return {"ok": True, "value": value, "choices": choices}
         except Exception as e:
@@ -228,7 +228,7 @@ def mount_personality_routes(
                 len(tools_text),
             )
             _write_profile(name_s, instructions, tools_text, normalized_voice)
-            value = f"user_personalities/{name_s}"
+            value = name_s
             choices = [DEFAULT_OPTION, *list_personalities()]
             return {"ok": True, "value": value, "choices": choices}
         except Exception as e:
