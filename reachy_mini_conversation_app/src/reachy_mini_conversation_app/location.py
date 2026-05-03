@@ -11,6 +11,11 @@ import json
 import logging
 import urllib.request
 import urllib.error
+from datetime import datetime
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo  # type: ignore[no-redef]
 
 
 logger = logging.getLogger(__name__)
@@ -41,17 +46,29 @@ def get_location_context() -> str:
         temp_unit = "Fahrenheit" if country in _FAHRENHEIT_COUNTRIES else "Celsius"
         location_str = ", ".join(filter(None, [city, region, country]))
 
+        # Compute current local time so the model doesn't default to UTC
+        local_time_str = ""
+        if timezone:
+            try:
+                tz = ZoneInfo(timezone)
+                now = datetime.now(tz)
+                local_time_str = now.strftime("%I:%M %p %Z, %A %B %-d, %Y")
+            except Exception:
+                pass
+
         logger.warning(
-            "Location: inferred %s (tz=%s, units=%s)",
-            location_str, timezone, temp_unit,
+            "Location: inferred %s (tz=%s, units=%s, local=%s)",
+            location_str, timezone, temp_unit, local_time_str,
         )
 
         lines = [
             "## Location defaults (inferred from network — memory overrides these)",
             f"- Location: {location_str}",
+            f"- Current local time: {local_time_str}" if local_time_str else "",
             f"- Timezone: {timezone}" if timezone else "",
             f"- Temperature units: {temp_unit}",
             "- Use this for local news, weather, sports, and time references.",
+            "- Always use the local time above when asked what time it is — never use UTC.",
             "- If the user mentions a different location or preference, that takes priority.",
         ]
         return "\n".join(line for line in lines if line)
