@@ -82,41 +82,31 @@
           </div>
           <span class="chip">Live</span>
         </div>
-        <p class="muted">Create lean instruction sets, toggle tools, and apply a voice for your Reachy Mini.</p>
-        <div class="section">
-          <div class="section-heading">
-            <h3>Select & launch</h3>
-            <p class="muted small">Pick a profile and choose what should launch on startup.</p>
-          </div>
-          <div class="row row-top">
-            <label for="personality-select">Select</label>
-            <select id="personality-select"></select>
-            <button id="persist-personality" class="ghost">Use on startup</button>
-            <button id="apply-personality" class="ghost">Apply</button>
-            <button id="new-personality" class="ghost">New</button>
-          </div>
-          <div class="row">
-            <label>Startup personality</label>
-            <div class="startup-row">
-              <span id="startup-label" class="chip">Built-in default</span>
-            </div>
-          </div>
+
+        <!-- Profile picker + actions -->
+        <div class="row row-top" style="margin-top:4px">
+          <label for="personality-select">Profile</label>
+          <select id="personality-select"></select>
+          <button id="apply-personality" class="ghost">Apply now</button>
+          <button id="persist-personality" class="ghost">Set as startup</button>
+          <button id="new-personality" class="ghost">+ New</button>
+        </div>
+        <div class="row" style="margin-top:4px">
+          <label></label>
+          <span id="startup-label" class="chip" style="font-size:11px">Built-in default</span>
         </div>
 
-        <div class="section">
-          <div class="section-heading">
-            <h3>Create / edit &nbsp;<span id="editing-label" class="chip" style="font-size:11px;vertical-align:middle"></span></h3>
-            <p class="muted small">Select a profile above to edit it, or fill in a new name to create one.</p>
-          </div>
+        <!-- Edit area — always visible, loads from selection above -->
+        <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:16px">
           <div class="row">
-            <label for="personality-name">Name</label>
+            <label for="personality-name">Save as</label>
             <input id="personality-name" type="text" placeholder="my_profile" />
           </div>
           <div class="row row-voice">
             <label for="voice-select">Voice &nbsp;<a href="https://docs.cloud.google.com/vertex-ai/generative-ai/docs/live-api/configure-language-voice" target="_blank" rel="noopener" style="color:var(--accent);font-size:11px">↗ styles</a></label>
             <select id="voice-select"></select>
-            <button id="apply-voice" class="ghost">Apply voice</button>
-            <button id="preview-voice" class="ghost" type="button">▶ Preview</button>
+            <button id="apply-voice" class="ghost">Apply</button>
+            <button id="preview-voice" class="ghost" type="button">▶</button>
           </div>
           <p id="voice-style-label" class="muted small" style="grid-column:2;margin-top:-4px"></p>
           <div class="row">
@@ -124,35 +114,33 @@
             <textarea id="instructions-ta" rows="8" placeholder="# Write your instructions here"></textarea>
           </div>
           <div class="row">
-            <label for="mcp-ta">MCP Servers <span class="muted small">(mcp_servers.json)</span></label>
-            <textarea id="mcp-ta" rows="4" placeholder='[{"name": "weather", "transport": "sse", "url": "http://..."}]'></textarea>
-          </div>
-          <div class="row">
-            <label for="memory-check">Memory</label>
-            <input id="memory-check" type="checkbox" style="width:auto;margin-top:4px" />
-            <span class="muted small" style="align-self:center">Persist conversation memories across sessions</span>
-          </div>
-          <div class="row">
-            <label for="grounding-check">Google Search</label>
-            <input id="grounding-check" type="checkbox" style="width:auto;margin-top:4px" />
-            <span class="muted small" style="align-self:center">Enable real-time web search for this profile</span>
-          </div>
-          <div class="row">
-            <label for="tools-ta">tools.txt</label>
-            <textarea id="tools-ta" rows="6" placeholder="# tools enabled for this profile"></textarea>
-          </div>
-          <div class="row">
-            <label for="tools-available">Available tools</label>
-            <div id="tools-available" class="checkbox-grid"></div>
-          </div>
-          <div class="row row-save">
-            <label></label>
-            <div class="actions">
-              <button id="save-personality">Save</button>
+            <label>Options</label>
+            <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;padding-top:4px">
+              <label style="display:flex;align-items:center;gap:6px;margin:0;color:var(--text)">
+                <input id="memory-check" type="checkbox" style="width:auto" /> Memory
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;margin:0;color:var(--text)">
+                <input id="grounding-check" type="checkbox" style="width:auto" /> Google Search
+              </label>
             </div>
           </div>
+          <div class="row">
+            <label for="tools-available">Tools</label>
+            <div id="tools-available" class="checkbox-grid"></div>
+          </div>
+          <div class="row">
+            <label for="mcp-ta">MCP Servers</label>
+            <textarea id="mcp-ta" rows="3" placeholder='[{"name": "weather", "transport": "sse", "url": "http://..."}]'></textarea>
+          </div>
+          <div class="row">
+            <label for="tools-ta">tools.txt <span class="muted small">(raw)</span></label>
+            <textarea id="tools-ta" rows="4" placeholder="# tools enabled for this profile"></textarea>
+          </div>
+          <div class="actions" style="margin-top:12px">
+            <button id="save-personality">Save profile</button>
+            <p id="personality-status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
+          </div>
         </div>
-        <p id="personality-status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
       </div>
 
       <!-- Configuration (post-setup, collapsible) -->

@@ -365,6 +365,7 @@ button.ghost:hover { border-color: rgba(94, 240, 193, 0.4); }
 /* First row: controls inline */
 #personality-panel .row-top {
   grid-template-columns: 160px 1fr auto auto auto;
+  align-items: center;
 }
 #personality-panel .row-voice,
 #setup-panel .row-voice {
