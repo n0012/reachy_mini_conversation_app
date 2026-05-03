@@ -55,8 +55,7 @@ _MID_SESSION_SAVE_EVERY_N_TURNS: Final[int] = 20
 def _profile_memory_enabled(profile: str) -> bool:
     """Return True if the profile opts in to memory via memory.txt with enabled=true."""
     try:
-        from reachy_mini_conversation_app.config import PROFILES_DIRECTORY
-        f = PROFILES_DIRECTORY / profile / "memory.txt"
+        f = config.PROFILES_DIRECTORY / profile / "memory.txt"
         if f.exists():
             return f.read_text(encoding="utf-8").strip().lower() in {"enabled=true", "true", "1", "yes"}
     except Exception:
