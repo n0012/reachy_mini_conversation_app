@@ -25,6 +25,7 @@ from scipy.signal import resample
 from reachy_mini import ReachyMini
 from reachy_mini.media.media_manager import MediaBackend
 from reachy_mini_conversation_app.config import (
+    AVAILABLE_VOICES,
     GEMINI_BACKEND,
     LOCKED_PROFILE,
     OPENAI_BACKEND,
@@ -157,8 +158,8 @@ class LocalStream:
     def _has_required_key(self, backend: str) -> bool:
         """Return whether the requested backend has its required credential."""
         if backend == GEMINI_BACKEND:
-            return self._has_key(config.GEMINI_API_KEY)
-        return self._has_key(config.OPENAI_API_KEY)
+            return self._has_key(getattr(config, "GEMINI_API_KEY", None))
+        return self._has_key(getattr(config, "OPENAI_API_KEY", None))
 
     @staticmethod
     def _is_setup_complete() -> bool:
@@ -340,6 +341,11 @@ class LocalStream:
                 "requires_restart": requires_restart,
                 "setup_complete": self._is_setup_complete(),
             }
+
+        # GET /voices -> available voices (static list, available before and after setup)
+        @self._settings_app.get("/voices")
+        def _voices_static() -> JSONResponse:
+            return JSONResponse(sorted(AVAILABLE_VOICES))
 
         # GET / -> index.html
         @self._settings_app.get("/")
