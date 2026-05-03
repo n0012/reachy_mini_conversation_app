@@ -147,7 +147,7 @@ class VertexMemoryBackend:
             return ""
 
     async def save_session(self, profile: str, transcript: list[dict]) -> None:
-        """Fire-and-forget: ingest transcript events. Returns immediately."""
+        """Ingest transcript into Memory Bank. Awaited at session close."""
         if not transcript:
             return
         events = [
@@ -157,14 +157,14 @@ class VertexMemoryBackend:
         ]
         if not events:
             return
-        asyncio.get_event_loop().run_in_executor(
+        await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: self._generate_memories(profile, {"direct_contents_source": {"events": events}}),
         )
 
     async def remember(self, profile: str, fact: str) -> None:
-        """Fire-and-forget: store an explicit fact."""
-        asyncio.get_event_loop().run_in_executor(
+        """Store an explicit fact. Awaited so the call completes."""
+        await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: self._generate_memories(profile, {
                 "direct_memories_source": {"direct_memories": [{"fact": fact}]}

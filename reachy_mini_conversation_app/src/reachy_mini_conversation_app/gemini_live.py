@@ -698,12 +698,14 @@ class GeminiLiveHandler(AsyncStreamHandler):
             finally:
                 self.session = None
 
-        # Fire-and-forget: save transcript to memory after session ends
+        # Save transcript to memory — awaited so it completes before teardown
         if self._session_transcript:
             profile = self.deps.active_profile or "default"
-            asyncio.create_task(
-                self._memory.save_session(profile, self._session_transcript)
-            )
+            try:
+                await self._memory.save_session(profile, self._session_transcript)
+                logger.info("Memory: saved %d transcript turns for profile %r", len(self._session_transcript), profile)
+            except Exception as exc:
+                logger.warning("Memory: save failed: %s", exc)
 
         # Clean up MCP connections and deregister tools
         if hasattr(self, "_mcp_pool") and self._mcp_pool:
