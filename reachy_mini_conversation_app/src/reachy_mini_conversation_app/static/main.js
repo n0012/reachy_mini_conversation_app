@@ -97,7 +97,7 @@ async function applyVoice(voice) {
   const url = new URL("/voices/apply", window.location.origin);
   url.searchParams.set("voice", voice || "");
   url.searchParams.set("_", Date.now().toString());
-  const resp = await fetchWithTimeout(url, { method: "POST" }, 5000);
+  const resp = await fetchWithTimeout(url, { method: "POST" }, 20000);
   if (!resp.ok) {
     const data = await resp.json().catch(() => ({}));
     throw new Error(data.error || "apply_voice_failed");
