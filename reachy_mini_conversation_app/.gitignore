@@ -1,6 +1,7 @@
 *.json
 !package.json
 !package-lock.json
+!profiles/**/mcp_servers.json
 *.env
 .env.*
 __pycache__/

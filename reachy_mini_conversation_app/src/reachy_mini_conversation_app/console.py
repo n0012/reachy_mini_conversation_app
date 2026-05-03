@@ -629,7 +629,7 @@ class LocalStream:
                             content if len(content) < 500 else content[:500] + "…",
                         )
                         role = msg.get("role")
-                        if role in ("user", "assistant") and content.strip():
+                        if role in ("user", "assistant", "tool", "search") and content.strip():
                             self._transcript_buffer.append({"role": role, "content": content})
 
             elif isinstance(handler_output, tuple):

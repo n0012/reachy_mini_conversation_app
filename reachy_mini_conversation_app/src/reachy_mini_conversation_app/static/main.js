@@ -526,9 +526,11 @@ async function init() {
       if (!content || !content.trim()) return;
       transcriptEmpty.style.display = "none";
       const div = document.createElement("div");
-      div.className = `transcript-msg ${role === "user" ? "user" : "assistant"}`;
+      const roleClass = role === "user" ? "user" : role === "tool" ? "tool" : role === "search" ? "search" : "assistant";
+      div.className = `transcript-msg ${roleClass}`;
       const label = document.createElement("div"); label.className = "transcript-role";
-      label.textContent = role === "user" ? "You" : "Reachy";
+      const roleLabel = role === "user" ? "You" : role === "tool" ? "🛠 Tool" : role === "search" ? "🔍 Search" : "Reachy";
+      label.textContent = roleLabel;
       const text = document.createElement("div"); text.textContent = content;
       div.appendChild(label); div.appendChild(text);
       transcriptLog.appendChild(div);

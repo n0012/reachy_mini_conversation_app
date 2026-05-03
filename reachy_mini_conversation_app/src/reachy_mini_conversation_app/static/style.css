@@ -487,6 +487,17 @@ button.ghost:hover { border-color: rgba(94, 240, 193, 0.4); }
   background: rgba(94, 240, 193, 0.07);
   border-left: 2px solid var(--accent-2);
 }
+.transcript-msg.tool {
+  background: rgba(255, 181, 71, 0.07);
+  border-left: 2px solid var(--warn);
+  font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.transcript-msg.search {
+  background: rgba(139, 92, 246, 0.08);
+  border-left: 2px solid #8b5cf6;
+  font-size: 12px;
+}
 .transcript-role {
   font-size: 10px;
   text-transform: uppercase;

@@ -431,16 +431,17 @@ class GeminiLiveHandler(AsyncStreamHandler):
                 is_idle_tool_call=self.is_idle_tool_call,
             )
 
-            # Silent tools don't surface in the chat transcript
+            # Silent tools don't surface in the monitor
             _SILENT_TOOLS = {"remember", "identify_user", "do_nothing"}
             if tool_name not in _SILENT_TOOLS:
+                try:
+                    args_display = json.loads(args_json_str) if args_json_str else {}
+                    summary = ", ".join(f"{k}={v!r}" for k, v in args_display.items()) if args_display else ""
+                    label = f"{tool_name}({summary})" if summary else tool_name
+                except Exception:
+                    label = tool_name
                 await self.output_queue.put(
-                    AdditionalOutputs(
-                        {
-                            "role": "assistant",
-                            "content": f"🛠️ Used tool {tool_name} with args {args_json_str}. Tool ID: {bg_tool.tool_id}",
-                        },
-                    ),
+                    AdditionalOutputs({"role": "tool", "content": label}),
                 )
 
             if self.is_idle_tool_call:
@@ -696,6 +697,10 @@ class GeminiLiveHandler(AsyncStreamHandler):
                                         "Google Search used — queries=%r sources=%s",
                                         list(queries),
                                         source_uris,
+                                    )
+                                    q_str = ", ".join(f'"{q}"' for q in list(queries)[:2])
+                                    await self.output_queue.put(
+                                        AdditionalOutputs({"role": "search", "content": q_str or "search"}),
                                     )
 
                                 # Turn complete
