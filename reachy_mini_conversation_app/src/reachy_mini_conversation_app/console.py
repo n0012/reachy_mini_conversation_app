@@ -56,7 +56,7 @@ except ImportError:
 
 try:
     # FastAPI is provided by the Reachy Mini Apps runtime
-    from fastapi import FastAPI, Response
+    from fastapi import FastAPI, Request, Response
     from pydantic import BaseModel
     from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
     from starlette.staticfiles import StaticFiles
