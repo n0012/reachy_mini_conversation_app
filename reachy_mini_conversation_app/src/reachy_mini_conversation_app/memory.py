@@ -136,14 +136,17 @@ class VertexMemoryBackend:
             )
             memories = resp.get("retrievedMemories", [])
             if not memories:
+                logger.info("Memory: no stored memories for profile %r", profile)
                 return ""
             facts = [m["memory"]["fact"] for m in memories if m.get("memory", {}).get("fact")]
             if not facts:
+                logger.info("Memory: retrieved %d entries but none had facts", len(memories))
                 return ""
+            logger.info("Memory: injecting %d facts into system prompt for profile %r", len(facts), profile)
             bullet_list = "\n".join(f"- {f}" for f in facts)
             return f"## What I remember\n{bullet_list}"
         except Exception as exc:
-            logger.warning("Memory load failed: %s", exc)
+            logger.warning("Memory: load failed (profile=%r): %s", profile, exc)
             return ""
 
     async def save_session(self, profile: str, transcript: list[dict]) -> None:
@@ -173,12 +176,14 @@ class VertexMemoryBackend:
 
     def _generate_memories(self, profile: str, source: dict) -> None:
         try:
-            _api("POST", self._url("memories:generate"), {
+            resp = _api("POST", self._url("memories:generate"), {
                 "scope": self._scope(profile),
                 **source,
             })
+            op = resp.get("name", "?").split("/")[-1]
+            logger.info("Memory: generate LRO started (op=%s, profile=%r)", op, profile)
         except Exception as exc:
-            logger.warning("Memory save failed: %s", exc)
+            logger.warning("Memory: generate failed (profile=%r): %s", profile, exc)
 
 
 # ── File-based fallback ───────────────────────────────────────────────────────

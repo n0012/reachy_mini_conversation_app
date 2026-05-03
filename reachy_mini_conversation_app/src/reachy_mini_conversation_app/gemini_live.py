@@ -699,13 +699,16 @@ class GeminiLiveHandler(AsyncStreamHandler):
                 self.session = None
 
         # Save transcript to memory — awaited so it completes before teardown
+        logger.info("Memory: session ended with %d transcript turns", len(self._session_transcript))
         if self._session_transcript:
             profile = self.deps.active_profile or "default"
             try:
                 await self._memory.save_session(profile, self._session_transcript)
-                logger.info("Memory: saved %d transcript turns for profile %r", len(self._session_transcript), profile)
+                logger.info("Memory: save complete for profile %r", profile)
             except Exception as exc:
                 logger.warning("Memory: save failed: %s", exc)
+        else:
+            logger.warning("Memory: no transcript captured — nothing to save")
 
         # Clean up MCP connections and deregister tools
         if hasattr(self, "_mcp_pool") and self._mcp_pool:
