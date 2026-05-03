@@ -27,7 +27,17 @@ def _packaged_profiles_directory() -> Path | None:
 
 
 def _resolve_default_profiles_directory() -> Path:
-    """Resolve built-in profiles from source checkout or installed package data."""
+    """Resolve built-in profiles from source checkout or installed package data.
+
+    REACHY_MINI_PROFILES_OVERRIDE env var takes priority — used to point the
+    installed app at live source files so edits don't require a reinstall.
+    """
+    override = os.getenv("REACHY_MINI_PROFILES_OVERRIDE")
+    if override:
+        p = Path(override).expanduser().resolve()
+        if p.is_dir():
+            return p
+
     source_profiles = PROJECT_ROOT / "profiles"
     if _is_source_checkout_root(PROJECT_ROOT) and source_profiles.is_dir():
         return source_profiles
