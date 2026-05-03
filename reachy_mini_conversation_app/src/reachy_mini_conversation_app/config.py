@@ -92,10 +92,8 @@ AVAILABLE_VOICES: list[str] = [
 DEFAULT_MODEL_NAME = "gemini-3.1-flash-live-preview"
 DEFAULT_VOICE = "Kore"
 
-# Compatibility stubs — console.py and gradio_personality.py import these.
-# OpenAI code paths are dead code and never execute in this Gemini-only fork.
 GEMINI_BACKEND = "gemini"
-OPENAI_BACKEND = "openai"
+OPENAI_BACKEND = "openai"  # kept for any upstream import compatibility
 
 logger = logging.getLogger(__name__)
 

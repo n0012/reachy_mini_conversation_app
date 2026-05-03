@@ -28,14 +28,23 @@ from reachy_mini_conversation_app.config import (
     AVAILABLE_VOICES,
     GEMINI_BACKEND,
     LOCKED_PROFILE,
-    OPENAI_BACKEND,
     REACHY_MINI_DIR,
     REACHY_MINI_ENV_PATH,
-    config,
-    get_backend_choice,
-    get_model_name_for_backend,
     refresh_runtime_config_from_env,
 )
+
+VOICE_STYLES: dict[str, str] = {
+    "Achird": "Friendly", "Achernar": "Soft", "Algenib": "Gravelly",
+    "Algieba": "Smooth", "Alnilam": "Firm", "Aoede": "Breezy",
+    "Autonoe": "Bright", "Callirrhoe": "Easy-going", "Charon": "Informative",
+    "Despina": "Smooth", "Enceladus": "Breathy", "Erinome": "Clear",
+    "Fenrir": "Excitable", "Gacrux": "Mature", "Iapetus": "Clear",
+    "Kore": "Firm", "Laomedeia": "Upbeat", "Leda": "Youthful",
+    "Orus": "Firm", "Pulcherrima": "Forward", "Puck": "Upbeat",
+    "Rasalgethi": "Informative", "Sadachbia": "Lively", "Sadaltager": "Knowledgeable",
+    "Schedar": "Even", "Sulafat": "Warm", "Umbriel": "Easy-going",
+    "Vindemiatrix": "Gentle", "Zephyr": "Bright", "Zubenelgenubi": "Casual",
+}
 from reachy_mini_conversation_app.headless_personality_ui import mount_personality_routes
 
 
@@ -93,7 +102,7 @@ class LocalStream:
         settings_app: Optional[FastAPI] = None,
         instance_path: Optional[str] = None,
     ):
-        """Initialize the stream with an OpenAI realtime handler and pipelines.
+        """Initialize the stream.
 
         - ``settings_app``: the Reachy Mini Apps FastAPI to attach settings endpoints.
         - ``instance_path``: directory where per-instance ``.env`` should be stored.
@@ -145,21 +154,9 @@ class LocalStream:
         except Exception:
             return []
 
-    def _active_backend(self) -> str:
-        """Return the backend family of the currently running handler."""
-        handler_name = type(self.handler).__name__.lower()
-        return GEMINI_BACKEND if "gemini" in handler_name else OPENAI_BACKEND
-
     @staticmethod
     def _has_key(value: Optional[str]) -> bool:
-        """Return whether a runtime credential value is present."""
         return bool(value and str(value).strip())
-
-    def _has_required_key(self, backend: str) -> bool:
-        """Return whether the requested backend has its required credential."""
-        if backend == GEMINI_BACKEND:
-            return self._has_key(getattr(config, "GEMINI_API_KEY", None))
-        return self._has_key(getattr(config, "OPENAI_API_KEY", None))
 
     @staticmethod
     def _is_setup_complete() -> bool:
@@ -214,25 +211,6 @@ class LocalStream:
             refresh_runtime_config_from_env()
         except Exception as e:
             logger.warning("Failed to persist %s: %s", ", ".join(sorted(normalized_updates)), e)
-
-    def _persist_api_key(self, key: str) -> None:
-        """Persist OPENAI_API_KEY to environment and instance `.env`."""
-        self._persist_env_value("OPENAI_API_KEY", key)
-
-    def _persist_gemini_api_key(self, key: str) -> None:
-        """Persist GEMINI_API_KEY to environment and instance `.env`."""
-        self._persist_env_value("GEMINI_API_KEY", key)
-
-    def _persist_backend_choice(self, backend: str) -> None:
-        """Persist the selected backend without clobbering explicit model overrides."""
-        current_backend = get_backend_choice()
-        current_model_name = (os.getenv("MODEL_NAME") or "").strip()
-        updates = {"BACKEND_PROVIDER": backend}
-        if current_model_name and current_model_name != get_model_name_for_backend(current_backend):
-            updates["MODEL_NAME"] = current_model_name
-        else:
-            updates["MODEL_NAME"] = get_model_name_for_backend(backend)
-        self._persist_env_values(updates)
 
     def _persist_personality(self, profile: Optional[str]) -> None:
         """Persist the startup personality to the instance .env and config."""
@@ -313,39 +291,61 @@ class LocalStream:
             except Exception:
                 pass
 
-        class ApiKeyPayload(BaseModel):
-            openai_api_key: str
-
-        class BackendPayload(BaseModel):
-            backend: str
-            api_key: Optional[str] = None
-
-        def _status_payload() -> dict[str, object]:
-            backend_provider = get_backend_choice()
-            active_backend = self._active_backend()
-            has_openai_key = self._has_required_key(OPENAI_BACKEND)
-            has_gemini_key = self._has_required_key(GEMINI_BACKEND)
-            can_proceed_with_openai = has_openai_key
-            can_proceed_with_gemini = has_gemini_key
-            can_proceed = self._has_required_key(active_backend)
-            requires_restart = backend_provider != active_backend
+def _status_payload() -> dict[str, object]:
             return {
-                "active_backend": active_backend,
-                "backend_provider": backend_provider,
-                "has_key": can_proceed,
-                "has_openai_key": has_openai_key,
-                "has_gemini_key": has_gemini_key,
-                "can_proceed": can_proceed,
-                "can_proceed_with_openai": can_proceed_with_openai,
-                "can_proceed_with_gemini": can_proceed_with_gemini,
-                "requires_restart": requires_restart,
+                "active_backend": GEMINI_BACKEND,
+                "backend_provider": GEMINI_BACKEND,
+                "has_key": True,
+                "can_proceed": True,
+                "requires_restart": False,
                 "setup_complete": self._is_setup_complete(),
             }
 
-        # GET /voices -> available voices (static list, available before and after setup)
+        # GET /voices -> available voices with style descriptions
         @self._settings_app.get("/voices")
         def _voices_static() -> JSONResponse:
             return JSONResponse(sorted(AVAILABLE_VOICES))
+
+        # GET /voices/styles -> voice name → character style mapping
+        @self._settings_app.get("/voices/styles")
+        def _voices_styles() -> JSONResponse:
+            return JSONResponse(VOICE_STYLES)
+
+        # POST /voices/preview?voice=Sadachbia -> short audio sample as WAV
+        @self._settings_app.post("/voices/preview")
+        async def _voice_preview(voice: str = "Sadachbia") -> "Response":
+            import wave, io
+            project = os.environ.get("GCP_PROJECT_ID", "").strip()
+            location = os.environ.get("GCP_LOCATION", "us-central1").strip() or "us-central1"
+            if not project:
+                return JSONResponse({"error": "not_configured"}, status_code=503)
+            try:
+                from google import genai as _genai
+                from google.genai import types as _types
+                client = _genai.Client(vertexai=True, project=project, location=location)
+                resp = await asyncio.get_event_loop().run_in_executor(None, lambda: client.models.generate_content(
+                    model="gemini-3.1-flash-tts-preview",
+                    contents=f"Say naturally: Hello! I'm {voice}, your Reachy Mini assistant.",
+                    config=_types.GenerateContentConfig(
+                        response_modalities=["AUDIO"],
+                        speech_config=_types.SpeechConfig(
+                            voice_config=_types.VoiceConfig(
+                                prebuilt_voice_config=_types.PrebuiltVoiceConfig(voice_name=voice)
+                            )
+                        ),
+                    ),
+                ))
+                pcm = resp.candidates[0].content.parts[0].inline_data.data
+                buf = io.BytesIO()
+                with wave.open(buf, "wb") as wf:
+                    wf.setnchannels(1)
+                    wf.setsampwidth(2)
+                    wf.setframerate(24000)
+                    wf.writeframes(pcm)
+                return Response(content=buf.getvalue(), media_type="audio/wav")
+            except Exception as e:
+                logger.warning("Voice preview failed for %r: %s", voice, e)
+                return JSONResponse({"error": str(e)}, status_code=500)
 
         # GET / -> index.html
         @self._settings_app.get("/")
@@ -371,69 +371,6 @@ class LocalStream:
             except Exception:
                 ready = False
             return JSONResponse({"ready": ready})
-
-        # POST /openai_api_key -> set/persist key
-        @self._settings_app.post("/openai_api_key")
-        def _set_key(payload: ApiKeyPayload) -> JSONResponse:
-            key = (payload.openai_api_key or "").strip()
-            if not key:
-                return JSONResponse({"ok": False, "error": "empty_key"}, status_code=400)
-            self._persist_api_key(key)
-            return JSONResponse({"ok": True, **_status_payload()})
-
-        @self._settings_app.post("/backend_config")
-        def _set_backend(payload: BackendPayload) -> JSONResponse:
-            backend = payload.backend.strip().lower()
-            if backend not in {OPENAI_BACKEND, GEMINI_BACKEND}:
-                return JSONResponse({"ok": False, "error": "invalid_backend"}, status_code=400)
-
-            api_key = (payload.api_key or "").strip()
-            if backend == GEMINI_BACKEND and not api_key and not self._has_required_key(GEMINI_BACKEND):
-                return JSONResponse({"ok": False, "error": "empty_key"}, status_code=400)
-
-            if backend == OPENAI_BACKEND and api_key:
-                self._persist_api_key(api_key)
-            if backend == GEMINI_BACKEND and api_key:
-                self._persist_gemini_api_key(api_key)
-
-            self._persist_backend_choice(backend)
-            payload_data = _status_payload()
-            message = "Backend saved."
-            if payload_data["requires_restart"]:
-                message = "Backend saved. Restart Reachy Mini Conversation from the desktop app to apply it."
-            return JSONResponse(
-                {
-                    "ok": True,
-                    "message": message,
-                    **payload_data,
-                }
-            )
-
-        # POST /validate_api_key -> validate key without persisting it
-        @self._settings_app.post("/validate_api_key")
-        async def _validate_key(payload: ApiKeyPayload) -> JSONResponse:
-            key = (payload.openai_api_key or "").strip()
-            if not key:
-                return JSONResponse({"valid": False, "error": "empty_key"}, status_code=400)
-
-            # Try to validate by checking if we can fetch the models
-            try:
-                import httpx
-
-                headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    response = await client.get("https://api.openai.com/v1/models", headers=headers)
-                    if response.status_code == 200:
-                        return JSONResponse({"valid": True})
-                    elif response.status_code == 401:
-                        return JSONResponse({"valid": False, "error": "invalid_api_key"}, status_code=401)
-                    else:
-                        return JSONResponse(
-                            {"valid": False, "error": "validation_failed"}, status_code=response.status_code
-                        )
-            except Exception as e:
-                logger.warning(f"API key validation failed: {e}")
-                return JSONResponse({"valid": False, "error": "validation_error"}, status_code=500)
 
         class SetupPayload(BaseModel):
             gcp_project_id: str
@@ -546,23 +483,6 @@ class LocalStream:
             except Exception:
                 pass  # Instance .env loading is optional; continue with defaults
 
-        active_backend = self._active_backend()
-
-        # If key is still missing, try to download one from HuggingFace (OpenAI only)
-        if active_backend == OPENAI_BACKEND and not self._has_required_key(active_backend):
-            logger.info("OPENAI_API_KEY not set, attempting to download from HuggingFace...")
-            try:
-                from gradio_client import Client
-
-                client = Client("HuggingFaceM4/gradium_setup", verbose=False)
-                key, _ = client.predict(api_name="/claim_b_key")
-                if key and key.strip():
-                    logger.info("Successfully downloaded API key from HuggingFace")
-                    # Persist it immediately
-                    self._persist_api_key(key)
-            except Exception as e:
-                logger.warning(f"Failed to download API key from HuggingFace: {e}")
-
         # Always expose settings UI if a settings app is available
         # (do this AFTER loading/downloading the key so status endpoint sees the right value)
         self._init_settings_ui_if_needed()
@@ -599,7 +519,7 @@ class LocalStream:
             except Exception:
                 pass
             self._tasks = [
-                asyncio.create_task(self.handler.start_up(), name="openai-handler"),
+                asyncio.create_task(self.handler.start_up(), name="gemini-handler"),
                 asyncio.create_task(self.record_loop(), name="stream-record-loop"),
                 asyncio.create_task(self.play_loop(), name="stream-play-loop"),
             ]

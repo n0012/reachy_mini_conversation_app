@@ -366,9 +366,11 @@ button.ghost:hover { border-color: rgba(94, 240, 193, 0.4); }
 #personality-panel .row-top {
   grid-template-columns: 160px 1fr auto auto auto;
 }
-#personality-panel .row-voice {
-  grid-template-columns: 160px 1fr auto;
+#personality-panel .row-voice,
+#setup-panel .row-voice {
+  grid-template-columns: 160px 1fr auto auto;
 }
+.small { font-size: 12px; }
 
 #tools-available {
   max-height: 240px;
