@@ -28,7 +28,7 @@ from scipy.signal import resample
 from reachy_mini_conversation_app.config import config
 from reachy_mini_conversation_app.voices import resolve_voice
 from reachy_mini_conversation_app.memory import create_memory_backend
-from reachy_mini_conversation_app.prompts import get_session_voice, get_session_instructions
+from reachy_mini_conversation_app.prompts import get_session_voice, get_session_instructions, get_session_grounding
 from reachy_mini_conversation_app.tools.core_tools import (
     ToolDependencies,
     get_tool_specs,
@@ -348,6 +348,9 @@ class GeminiLiveHandler(AsyncStreamHandler):
         tools_config: List[Dict[str, Any]] = []
         if function_declarations:
             tools_config.append({"function_declarations": function_declarations})
+        if get_session_grounding():
+            tools_config.append({"google_search": {}})
+            logger.info("Google Search grounding enabled for this session")
 
         live_config = types.LiveConnectConfig(
             response_modalities=[types.Modality.AUDIO],

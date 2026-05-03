@@ -1,3 +1,4 @@
+import os
 import re
 import sys
 import logging
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 PROMPTS_LIBRARY_DIRECTORY = Path(__file__).parent / "prompts"
 INSTRUCTIONS_FILENAME = "instructions.txt"
 VOICE_FILENAME = "voice.txt"
+GROUNDING_FILENAME = "grounding.txt"
 
 
 def _expand_prompt_includes(content: str) -> str:
@@ -110,3 +112,23 @@ def get_session_voice(default: str | None = None) -> str:
     except Exception:
         pass
     return fallback
+
+
+def get_session_grounding() -> bool:
+    """Return True if Google Search grounding should be enabled for this session.
+
+    Priority order:
+    1. Per-profile grounding.txt containing "google_search=true" (or just "true")
+    2. Global env var GOOGLE_SEARCH_GROUNDING=1
+    """
+    profile = config.REACHY_MINI_CUSTOM_PROFILE
+    if profile:
+        try:
+            grounding_file = config.PROFILES_DIRECTORY / profile / GROUNDING_FILENAME
+            if grounding_file.exists():
+                content = grounding_file.read_text(encoding="utf-8").strip().lower()
+                return content in {"true", "1", "yes", "google_search=true"}
+        except Exception:
+            pass
+
+    return os.environ.get("GOOGLE_SEARCH_GROUNDING", "").strip().lower() in {"1", "true", "yes"}
