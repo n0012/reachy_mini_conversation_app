@@ -103,6 +103,7 @@ def mount_personality_routes(
                 voice = v or get_default_voice_for_backend()
                 uses_default_voice = not bool(v)
         grounding = False
+        memory = False
         mcp_servers_text = ""
         if name != DEFAULT_OPTION:
             pdir = resolve_profile_dir(name)
@@ -113,6 +114,9 @@ def mount_personality_routes(
             mf = pdir / "mcp_servers.json"
             if mf.exists():
                 mcp_servers_text = mf.read_text(encoding="utf-8").strip()
+            memf = pdir / "memory.txt"
+            if memf.exists():
+                memory = memf.read_text(encoding="utf-8").strip().lower() in {"enabled=true", "true", "1", "yes"}
         avail = available_tools_for(name)
         enabled = [ln.strip() for ln in tools_txt.splitlines() if ln.strip() and not ln.strip().startswith("#")]
         return {
@@ -123,6 +127,7 @@ def mount_personality_routes(
             "available_tools": avail,
             "enabled_tools": enabled,
             "grounding": grounding,
+            "memory": memory,
             "mcp_servers": mcp_servers_text,
         }
 
@@ -142,6 +147,7 @@ def mount_personality_routes(
             else get_default_voice_for_backend()
         )
         grounding = bool(raw.get("grounding", False))
+        memory = bool(raw.get("memory", False))
         mcp_servers_json = str(raw.get("mcp_servers", "") or "")
 
         name_s = _sanitize_name(name)
@@ -154,7 +160,8 @@ def mount_personality_routes(
             )
             _write_profile(name_s, instructions, tools_text,
                            voice or get_default_voice_for_backend(),
-                           grounding=grounding, mcp_servers_json=mcp_servers_json)
+                           grounding=grounding, mcp_servers_json=mcp_servers_json,
+                           memory=memory)
             value = f"user_personalities/{name_s}"
             choices = [DEFAULT_OPTION, *list_personalities()]
             return {"ok": True, "value": value, "choices": choices}

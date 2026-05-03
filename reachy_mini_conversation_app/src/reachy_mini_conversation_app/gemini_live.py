@@ -52,6 +52,18 @@ GEMINI_OUTPUT_SAMPLE_RATE: Final[int] = 24000
 _MID_SESSION_SAVE_EVERY_N_TURNS: Final[int] = 20
 
 
+def _profile_memory_enabled(profile: str) -> bool:
+    """Return True if the profile opts in to memory via memory.txt with enabled=true."""
+    try:
+        from reachy_mini_conversation_app.config import PROFILES_DIRECTORY
+        f = PROFILES_DIRECTORY / profile / "memory.txt"
+        if f.exists():
+            return f.read_text(encoding="utf-8").strip().lower() in {"enabled=true", "true", "1", "yes"}
+    except Exception:
+        pass
+    return False
+
+
 def _openai_tool_specs_to_gemini(specs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Convert OpenAI-style tool specs to Gemini function_declarations format.
 
@@ -161,6 +173,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
         self._memory = create_memory_backend()
         self._session_transcript: list[dict] = []
         self._turn_count: int = 0
+        self._memory_enabled: bool = False  # set per-session from profile's memory.txt
         self.deps.memory_backend = self._memory
 
     def copy(self) -> "GeminiLiveHandler":
@@ -211,7 +224,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
         if self.deps.head_wobbler is not None:
             self.deps.head_wobbler.request_reset_after_current_audio()
         self._turn_count += 1
-        if self._turn_count % _MID_SESSION_SAVE_EVERY_N_TURNS == 0:
+        if self._memory_enabled and self._turn_count % _MID_SESSION_SAVE_EVERY_N_TURNS == 0:
             asyncio.create_task(self._mid_session_memory_save())
 
     async def _mid_session_memory_save(self) -> None:
@@ -558,10 +571,18 @@ class GeminiLiveHandler(AsyncStreamHandler):
         self._session_transcript = []  # reset for new session
         self._turn_count = 0
 
+        # Check if memory is enabled for this profile (opt-in via memory.txt)
+        self._memory_enabled = _profile_memory_enabled(profile)
+        if not self._memory_enabled:
+            logger.info("Memory: disabled for profile=%r (no memory.txt with enabled=true)", profile)
+
         # Load memory, location, and MCP tools concurrently
         mcp_pool = MCPClientPool.from_profile(profile, config.PROFILES_DIRECTORY)
+        async def _no_memory() -> str:
+            return ""
+
         memory_context, location_context, mcp_specs = await asyncio.gather(
-            self._memory.load_context(profile, user_id=user_id),
+            self._memory.load_context(profile, user_id=user_id) if self._memory_enabled else _no_memory(),
             asyncio.get_running_loop().run_in_executor(None, get_location_context),
             mcp_pool.connect_all(),
         )
@@ -762,7 +783,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
 
         # Save transcript to memory — awaited so it completes before teardown
         logger.info("Memory: session ended with %d transcript turns", len(self._session_transcript))
-        if self._session_transcript:
+        if self._session_transcript and self._memory_enabled:
             profile = self.deps.active_profile or "default"
             user_id = self.deps.active_user  # may have been switched mid-session by identify_user
             try:

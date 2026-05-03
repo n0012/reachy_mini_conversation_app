@@ -290,6 +290,7 @@ async function init() {
     const pApplyVoice = document.getElementById("apply-voice");
     const pPreviewVoice = document.getElementById("preview-voice");
     const pVoiceStyle = document.getElementById("voice-style-label");
+    const pMemory = document.getElementById("memory-check");
     const pGrounding = document.getElementById("grounding-check");
     const pMcp = document.getElementById("mcp-ta");
     const pAvail = document.getElementById("tools-available");
@@ -374,6 +375,7 @@ async function init() {
       pVoice.value = data.uses_default_voice ? activeVoice : loadedVoice;
       updateVoiceStyle();
       renderToolCheckboxes(data.available_tools, data.enabled_tools);
+      pMemory.checked = !!data.memory;
       pGrounding.checked = !!data.grounding;
       pMcp.value = data.mcp_servers || "";
       const idx = selected.lastIndexOf("/");
@@ -444,6 +446,9 @@ async function init() {
       pAvail.querySelectorAll('input[type="checkbox"]').forEach((el) => { el.checked = false; });
       pVoice.value = pVoice.options[0]?.value || "";
       updateVoiceStyle();
+      pMemory.checked = false;
+      pGrounding.checked = false;
+      pMcp.value = "";
       setStatusMessage(pStatus, "Fill fields and click Save.");
     });
 
@@ -458,6 +463,7 @@ async function init() {
           instructions: pInstr.value || "",
           tools_text: pTools.value || "",
           voice: pVoice.value.split(" — ")[0] || pVoice.options[0]?.value || "",
+          memory: pMemory.checked,
           grounding: pGrounding.checked,
           mcp_servers: pMcp.value || "",
         });

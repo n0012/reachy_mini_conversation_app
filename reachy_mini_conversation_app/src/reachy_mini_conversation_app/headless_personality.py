@@ -103,6 +103,7 @@ def _write_profile(
     voice: str = "cedar",
     grounding: bool = False,
     mcp_servers_json: str = "",
+    memory: bool = False,
 ) -> None:
     target_dir = _profiles_root() / "user_personalities" / name_s
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -120,3 +121,8 @@ def _write_profile(
         mcp_file.write_text(mcp_text + "\n", encoding="utf-8")
     elif mcp_file.exists():
         mcp_file.unlink()
+    memory_file = target_dir / "memory.txt"
+    if memory:
+        memory_file.write_text("enabled=true\n", encoding="utf-8")
+    elif memory_file.exists():
+        memory_file.unlink()
