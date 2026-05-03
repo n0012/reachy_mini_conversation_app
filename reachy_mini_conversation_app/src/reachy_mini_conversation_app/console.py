@@ -27,6 +27,8 @@ from reachy_mini_conversation_app.config import (
     GEMINI_BACKEND,
     LOCKED_PROFILE,
     OPENAI_BACKEND,
+    REACHY_MINI_DIR,
+    REACHY_MINI_ENV_PATH,
     config,
     get_backend_choice,
     get_model_name_for_backend,
@@ -156,6 +158,14 @@ class LocalStream:
             return self._has_key(config.GEMINI_API_KEY)
         return self._has_key(config.OPENAI_API_KEY)
 
+    @staticmethod
+    def _is_setup_complete() -> bool:
+        """Return True when all required config is present to run the app."""
+        return (
+            bool(config.GEMINI_API_KEY and config.GEMINI_API_KEY.strip())
+            and bool(os.environ.get("VERTEX_REASONING_ENGINE_ID", "").strip())
+        )
+
     def _persist_env_value(self, env_name: str, value: str) -> None:
         """Persist a non-empty environment value in memory and in the instance `.env`."""
         self._persist_env_values({env_name: value})
@@ -174,11 +184,9 @@ class LocalStream:
                 pass
         refresh_runtime_config_from_env()
 
-        if not self._instance_path:
-            return
         try:
-            inst = Path(self._instance_path)
-            env_path = inst / ".env"
+            env_path = REACHY_MINI_ENV_PATH
+            env_path.parent.mkdir(parents=True, exist_ok=True)
             lines = self._read_env_lines(env_path)
             for env_name, value in normalized_updates.items():
                 replaced = False
@@ -196,7 +204,7 @@ class LocalStream:
             try:
                 from dotenv import load_dotenv
 
-                load_dotenv(dotenv_path=str(env_path))
+                load_dotenv(dotenv_path=str(env_path), override=True)
             except Exception:
                 pass
             refresh_runtime_config_from_env()
@@ -327,6 +335,7 @@ class LocalStream:
                 "can_proceed_with_openai": can_proceed_with_openai,
                 "can_proceed_with_gemini": can_proceed_with_gemini,
                 "requires_restart": requires_restart,
+                "setup_complete": self._is_setup_complete(),
             }
 
         # GET / -> index.html
@@ -417,6 +426,51 @@ class LocalStream:
                 logger.warning(f"API key validation failed: {e}")
                 return JSONResponse({"valid": False, "error": "validation_error"}, status_code=500)
 
+        class SetupPayload(BaseModel):
+            gemini_api_key: str
+            gcp_project_id: str
+            gcp_location: str = "us-central1"
+            vertex_reasoning_engine_id: str
+            service_account_json: str
+            voice: str = "Sadachbia"
+            google_search_grounding: bool = True
+
+        @self._settings_app.post("/setup")
+        def _setup(payload: SetupPayload) -> JSONResponse:
+            try:
+                # Write service account key to stable location
+                sa_path = REACHY_MINI_DIR / "service_account.json"
+                REACHY_MINI_DIR.mkdir(parents=True, exist_ok=True)
+                sa_path.write_text(payload.service_account_json, encoding="utf-8")
+                sa_path.chmod(0o600)
+
+                # Persist all env vars to ~/.reachy_mini/.env
+                updates: dict[str, str] = {
+                    "GEMINI_API_KEY": payload.gemini_api_key.strip(),
+                    "GCP_PROJECT_ID": payload.gcp_project_id.strip(),
+                    "GCP_LOCATION": payload.gcp_location.strip() or "us-central1",
+                    "VERTEX_REASONING_ENGINE_ID": payload.vertex_reasoning_engine_id.strip(),
+                    "GOOGLE_APPLICATION_CREDENTIALS": str(sa_path),
+                }
+                if payload.google_search_grounding:
+                    updates["GOOGLE_SEARCH_GROUNDING"] = "1"
+                self._persist_env_values(updates)
+
+                # Set voice in default profile
+                try:
+                    from reachy_mini_conversation_app.config import PROFILES_DIRECTORY
+                    voice_file = Path(PROFILES_DIRECTORY) / "default" / "voice.txt"
+                    if voice_file.parent.exists() and payload.voice.strip():
+                        voice_file.write_text(payload.voice.strip() + "\n", encoding="utf-8")
+                except Exception as ve:
+                    logger.warning("Could not write voice.txt: %s", ve)
+
+                logger.info("Setup complete — config written to %s", REACHY_MINI_ENV_PATH)
+                return JSONResponse({"ok": True, **_status_payload()})
+            except Exception as e:
+                logger.warning("Setup failed: %s", e)
+                return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
         self._settings_initialized = True
 
     def launch(self) -> None:
@@ -461,16 +515,14 @@ class LocalStream:
         # (do this AFTER loading/downloading the key so status endpoint sees the right value)
         self._init_settings_ui_if_needed()
 
-        # If key is still missing -> wait until provided via the settings UI
-        if not self._has_required_key(active_backend):
-            key_name = "GEMINI_API_KEY" if active_backend == GEMINI_BACKEND else "OPENAI_API_KEY"
-            logger.warning("%s not found. Open the app settings page to enter it.", key_name)
-            # Poll until the key becomes available (set via the settings UI)
+        # If setup is incomplete -> wait until provided via the settings UI
+        if not self._is_setup_complete():
+            logger.warning("Setup required. Open the app settings page at the robot's IP to configure.")
             try:
-                while not self._has_required_key(active_backend):
+                while not self._is_setup_complete():
                     time.sleep(0.2)
             except KeyboardInterrupt:
-                logger.info("Interrupted while waiting for API key.")
+                logger.info("Interrupted while waiting for setup.")
                 return
 
         # Start media after key is set/available

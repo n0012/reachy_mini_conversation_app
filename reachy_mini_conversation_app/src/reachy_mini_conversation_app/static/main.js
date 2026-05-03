@@ -246,6 +246,17 @@ function setStatusMessage(el, text, tone = "") {
   el.setAttribute("aria-atomic", "true");
 }
 
+async function submitSetup(payload) {
+  const resp = await fetch("/setup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data.error || "setup_failed");
+  return data;
+}
+
 async function init() {
   const loading = document.getElementById("loading");
   show(loading, true);
@@ -365,7 +376,83 @@ async function init() {
     can_proceed_with_openai: false,
     can_proceed_with_gemini: false,
     requires_restart: false,
+    setup_complete: false,
   };
+
+  // --- Setup wizard (shown when not yet configured) ---
+  const setupPanel = document.getElementById("setup-panel");
+  const backendPanel = document.getElementById("backend-panel");
+  const setupStatusEl = document.getElementById("setup-status");
+  const setupSubmitBtn = document.getElementById("setup-submit");
+  const setupVoice = document.getElementById("setup-voice");
+  const setupLocation = document.getElementById("setup-gcp-location");
+  if (setupLocation && !setupLocation.value) setupLocation.value = "us-central1";
+
+  if (!st.setup_complete) {
+    show(setupPanel, true);
+    show(backendPanel, false);
+    show(formPanel, false);
+    show(configuredPanel, false);
+    show(personalityPanel, false);
+
+    // Populate voice dropdown
+    const setupVoices = await getVoices();
+    setupVoice.innerHTML = "";
+    const defaultVoice = "Sadachbia";
+    if (setupVoices.length) {
+      for (const v of setupVoices) {
+        const opt = document.createElement("option");
+        opt.value = v;
+        opt.textContent = v;
+        if (v === defaultVoice) opt.selected = true;
+        setupVoice.appendChild(opt);
+      }
+    }
+
+    setupSubmitBtn.addEventListener("click", async () => {
+      const geminiKey = (document.getElementById("setup-gemini-key").value || "").trim();
+      const gcpProject = (document.getElementById("setup-gcp-project").value || "").trim();
+      const gcpLocation = (document.getElementById("setup-gcp-location").value || "us-central1").trim();
+      const engineId = (document.getElementById("setup-engine-id").value || "").trim();
+      const saJson = (document.getElementById("setup-sa-json").value || "").trim();
+      const voice = setupVoice.value || defaultVoice;
+      const grounding = document.getElementById("setup-grounding").checked;
+
+      if (!geminiKey || !gcpProject || !engineId || !saJson) {
+        setStatusMessage(setupStatusEl, "Please fill in all required fields.", "warn");
+        return;
+      }
+      // Basic JSON validation
+      try { JSON.parse(saJson); } catch {
+        setStatusMessage(setupStatusEl, "Service Account JSON is not valid JSON.", "error");
+        return;
+      }
+
+      setStatusMessage(setupStatusEl, "Saving configuration…");
+      setupSubmitBtn.disabled = true;
+      try {
+        await submitSetup({
+          gemini_api_key: geminiKey,
+          gcp_project_id: gcpProject,
+          gcp_location: gcpLocation,
+          vertex_reasoning_engine_id: engineId,
+          service_account_json: saJson,
+          voice,
+          google_search_grounding: grounding,
+        });
+        setStatusMessage(setupStatusEl, "Setup complete! Loading…", "ok");
+        await sleep(800);
+        window.location.reload();
+      } catch (e) {
+        setStatusMessage(setupStatusEl, `Setup failed: ${e.message || "unknown error"}`, "error");
+        setupSubmitBtn.disabled = false;
+      }
+    });
+
+    show(loading, false);
+    return;
+  }
+
   setSelectedBackend(st.backend_provider || OPENAI_BACKEND);
   statusEl.textContent = "";
   renderCredentialPanels(st);

@@ -12,6 +12,10 @@ from dotenv import find_dotenv, load_dotenv
 LOCKED_PROFILE: str | None = None
 PROJECT_ROOT = Path(__file__).parents[2].resolve()
 
+# Stable per-user config directory — survives reinstalls and launcher reboots.
+REACHY_MINI_DIR: Path = Path.home() / ".reachy_mini"
+REACHY_MINI_ENV_PATH: Path = REACHY_MINI_DIR / ".env"
+
 
 def _is_source_checkout_root(root: Path) -> bool:
     """Return whether the given root looks like this project's source checkout."""
@@ -174,15 +178,18 @@ _skip_dotenv = _env_flag("REACHY_MINI_SKIP_DOTENV", default=False)
 if _skip_dotenv:
     logger.info("Skipping .env loading because REACHY_MINI_SKIP_DOTENV is set")
 else:
-    # Locate .env file (search upward from current working directory)
-    dotenv_path = find_dotenv(usecwd=True)
-
-    if dotenv_path:
-        # Load .env and override environment variables
-        load_dotenv(dotenv_path=dotenv_path, override=True)
-        logger.info(f"Configuration loaded from {dotenv_path}")
+    # Primary: stable user config at ~/.reachy_mini/.env (survives reinstalls, fixes launcher CWD issue)
+    if REACHY_MINI_ENV_PATH.exists():
+        load_dotenv(dotenv_path=REACHY_MINI_ENV_PATH, override=True)
+        logger.info("Configuration loaded from %s", REACHY_MINI_ENV_PATH)
     else:
-        logger.warning("No .env file found, using environment variables")
+        # Fallback: search upward from CWD (dev/local use)
+        dotenv_path = find_dotenv(usecwd=True)
+        if dotenv_path:
+            load_dotenv(dotenv_path=dotenv_path, override=True)
+            logger.info("Configuration loaded from %s", dotenv_path)
+        else:
+            logger.warning("No .env file found, using environment variables")
 
 
 class Config:

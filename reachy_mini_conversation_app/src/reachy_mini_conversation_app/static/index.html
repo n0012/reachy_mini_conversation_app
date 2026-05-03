@@ -46,6 +46,50 @@
         </details>
       </aside>
 
+      <div id="setup-panel" class="panel hidden">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">First-run setup</p>
+            <h2>Configure Reachy Mini</h2>
+          </div>
+          <span class="chip">Required</span>
+        </div>
+        <p class="muted">Complete this one-time setup to get Reachy Mini talking. All values are stored locally on the robot.</p>
+
+        <div class="row">
+          <label for="setup-gemini-key">Gemini API Key &nbsp;<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="color:var(--accent)">↗ AI Studio</a></label>
+          <input id="setup-gemini-key" type="password" placeholder="AIza..." autocomplete="off" />
+        </div>
+        <div class="row">
+          <label for="setup-gcp-project">GCP Project ID &nbsp;<a href="https://console.cloud.google.com" target="_blank" rel="noopener" style="color:var(--accent)">↗ Console</a></label>
+          <input id="setup-gcp-project" type="text" placeholder="my-project-id" autocomplete="off" />
+        </div>
+        <div class="row">
+          <label for="setup-gcp-location">GCP Location</label>
+          <input id="setup-gcp-location" type="text" placeholder="us-central1" autocomplete="off" />
+        </div>
+        <div class="row">
+          <label for="setup-engine-id">Agent Engine ID &nbsp;<a href="https://console.cloud.google.com/vertex-ai/agents" target="_blank" rel="noopener" style="color:var(--accent)">↗ Vertex AI</a></label>
+          <input id="setup-engine-id" type="text" placeholder="1234567890123456789" autocomplete="off" />
+        </div>
+        <div class="row">
+          <label for="setup-sa-json">Service Account JSON &nbsp;<a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" rel="noopener" style="color:var(--accent)">↗ IAM</a></label>
+          <textarea id="setup-sa-json" rows="5" placeholder='{"type": "service_account", "project_id": "...", ...}'></textarea>
+        </div>
+        <div class="row row-voice">
+          <label for="setup-voice">Voice</label>
+          <select id="setup-voice"></select>
+        </div>
+        <div class="row">
+          <label for="setup-grounding">Enable Google Search grounding</label>
+          <input id="setup-grounding" type="checkbox" checked style="width:auto;margin-top:4px" />
+        </div>
+        <div class="actions">
+          <button id="setup-submit">Complete Setup</button>
+          <p id="setup-status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
+        </div>
+      </div>
+
       <div id="backend-panel" class="panel">
         <div class="panel-heading">
           <div>
