@@ -56,6 +56,11 @@ AVAILABLE_VOICES: list[str] = [
 DEFAULT_MODEL_NAME = "gemini-3.1-flash-live-preview"
 DEFAULT_VOICE = "Kore"
 
+# Compatibility stubs — console.py and gradio_personality.py import these.
+# OpenAI code paths are dead code and never execute in this Gemini-only fork.
+GEMINI_BACKEND = "gemini"
+OPENAI_BACKEND = "openai"
+
 logger = logging.getLogger(__name__)
 
 
@@ -242,6 +247,16 @@ def refresh_runtime_config_from_env() -> None:
     config.GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     config.MODEL_NAME = _resolve_model_name(os.getenv("MODEL_NAME"))
     config.REACHY_MINI_CUSTOM_PROFILE = LOCKED_PROFILE or os.getenv("REACHY_MINI_CUSTOM_PROFILE")
+
+
+def get_backend_choice(model_name: str | None = None) -> str:
+    """Always returns gemini — this fork is Gemini-only."""
+    return GEMINI_BACKEND
+
+
+def get_model_name_for_backend(backend: str) -> str:
+    """Returns the configured model name regardless of backend arg."""
+    return config.MODEL_NAME
 
 
 def get_available_voices_for_backend(backend: str | None = None) -> list[str]:

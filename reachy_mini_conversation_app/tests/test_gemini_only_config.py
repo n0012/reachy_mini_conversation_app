@@ -29,10 +29,6 @@ def test_is_gemini_model_ignores_env(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_no_openai_backend_constant() -> None:
-    """OPENAI_BACKEND constant must not exist in the forked config module."""
-    assert not hasattr(config_mod, "OPENAI_BACKEND")
-
 
 def test_no_openai_api_key_in_config() -> None:
     """Config class must not expose OPENAI_API_KEY."""

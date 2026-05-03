@@ -32,7 +32,6 @@ from reachy_mini_conversation_app.config import (
     get_model_name_for_backend,
     refresh_runtime_config_from_env,
 )
-from reachy_mini_conversation_app.openai_realtime import OpenaiRealtimeHandler
 from reachy_mini_conversation_app.headless_personality_ui import mount_personality_routes
 
 
@@ -84,7 +83,7 @@ class LocalStream:
 
     def __init__(
         self,
-        handler: "OpenaiRealtimeHandler | GeminiLiveHandler",
+        handler: "GeminiLiveHandler",
         robot: ReachyMini,
         *,
         settings_app: Optional[FastAPI] = None,
