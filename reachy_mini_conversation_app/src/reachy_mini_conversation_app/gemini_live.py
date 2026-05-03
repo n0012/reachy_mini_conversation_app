@@ -275,11 +275,15 @@ class GeminiLiveHandler(AsyncStreamHandler):
 
     async def start_up(self) -> None:
         """Start the handler with retries on unexpected closure."""
-        project = os.environ.get("GCP_PROJECT_ID", "").strip()
-        location = os.environ.get("GCP_LOCATION", "us-central1").strip() or "us-central1"
-        if not project:
-            raise RuntimeError("GCP_PROJECT_ID is required. Complete setup at the web UI.")
-        self.client = genai.Client(vertexai=True, project=project, location=location)
+        # gemini-3.1-flash-live-preview is only available on generativelanguage.googleapis.com
+        # (AI Studio endpoint), not Vertex AI. SA key handles Agent Engine memory separately.
+        api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+        if not api_key:
+            raise RuntimeError("GEMINI_API_KEY not set. Complete setup at the web UI.")
+        self.client = genai.Client(
+            api_key=api_key,
+            http_options={"api_version": "v1beta"},
+        )
 
         max_attempts = 3
         for attempt in range(1, max_attempts + 1):

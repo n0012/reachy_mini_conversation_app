@@ -162,7 +162,8 @@ class LocalStream:
     def _is_setup_complete() -> bool:
         """Return True when all required config is present to run the app."""
         return (
-            bool(os.environ.get("GCP_PROJECT_ID", "").strip())
+            bool(os.environ.get("GEMINI_API_KEY", "").strip())
+            and bool(os.environ.get("GCP_PROJECT_ID", "").strip())
             and bool(os.environ.get("VERTEX_REASONING_ENGINE_ID", "").strip())
             and bool(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip())
         )
@@ -301,10 +302,11 @@ class LocalStream:
                 "setup_complete": self._is_setup_complete(),
             }
 
-        # GET /config -> current GCP configuration (no secrets)
+        # GET /config -> current configuration (no secret values)
         @self._settings_app.get("/config")
         def _get_config() -> JSONResponse:
             return JSONResponse({
+                "has_gemini_key": bool(os.environ.get("GEMINI_API_KEY", "").strip()),
                 "gcp_project_id": os.environ.get("GCP_PROJECT_ID", ""),
                 "gcp_location": os.environ.get("GCP_LOCATION", "us-central1"),
                 "vertex_reasoning_engine_id": os.environ.get("VERTEX_REASONING_ENGINE_ID", ""),
@@ -384,6 +386,7 @@ class LocalStream:
             return JSONResponse({"ready": ready})
 
         class SetupPayload(BaseModel):
+            gemini_api_key: str
             gcp_project_id: str
             gcp_location: str = "us-central1"
             vertex_reasoning_engine_id: str
@@ -409,6 +412,7 @@ class LocalStream:
 
                 # Persist all env vars to ~/.reachy_mini/.env
                 updates: dict[str, str] = {
+                    "GEMINI_API_KEY": payload.gemini_api_key.strip(),
                     "GCP_PROJECT_ID": payload.gcp_project_id.strip(),
                     "GCP_LOCATION": payload.gcp_location.strip() or "us-central1",
                     "VERTEX_REASONING_ENGINE_ID": payload.vertex_reasoning_engine_id.strip(),
