@@ -60,6 +60,7 @@ AVAILABLE_VOICES: list[str] = [
     "Leda",
     "Orus",
     "Puck",
+    "Sadachbia",
     "Zephyr",
 ]
 

@@ -102,7 +102,12 @@ def _get_token() -> str:
             scopes=["https://www.googleapis.com/auth/cloud-platform"]
         )
     if not _credentials.valid:
-        _credentials.refresh(_http_request)
+        try:
+            _credentials.refresh(_http_request)
+        except Exception:
+            # Re-initialize on next call so fresh ADC is picked up after re-auth.
+            _credentials = None
+            raise
     return _credentials.token  # type: ignore[return-value]
 
 
