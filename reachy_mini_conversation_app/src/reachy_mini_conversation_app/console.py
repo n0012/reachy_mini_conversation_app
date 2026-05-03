@@ -291,7 +291,7 @@ class LocalStream:
             except Exception:
                 pass
 
-def _status_payload() -> dict[str, object]:
+        def _status_payload() -> dict[str, object]:
             return {
                 "active_backend": GEMINI_BACKEND,
                 "backend_provider": GEMINI_BACKEND,
