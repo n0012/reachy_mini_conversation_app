@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 
 GEMINI_INPUT_SAMPLE_RATE: Final[int] = 16000
 GEMINI_OUTPUT_SAMPLE_RATE: Final[int] = 24000
+_MID_SESSION_SAVE_EVERY_N_TURNS: Final[int] = 20
 
 
 def _openai_tool_specs_to_gemini(specs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -158,6 +159,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
         # Memory — initialised once, shared via deps so the remember tool can access it
         self._memory = create_memory_backend()
         self._session_transcript: list[dict] = []
+        self._turn_count: int = 0
         self.deps.memory_backend = self._memory
 
     def copy(self) -> "GeminiLiveHandler":
@@ -207,6 +209,17 @@ class GeminiLiveHandler(AsyncStreamHandler):
         self._set_listening_state(False)
         if self.deps.head_wobbler is not None:
             self.deps.head_wobbler.request_reset_after_current_audio()
+        self._turn_count += 1
+        if self._turn_count % _MID_SESSION_SAVE_EVERY_N_TURNS == 0:
+            asyncio.create_task(self._mid_session_memory_save())
+
+    async def _mid_session_memory_save(self) -> None:
+        """Fire-and-forget memory save triggered every N turns for long sessions."""
+        profile = self.deps.active_profile or "default"
+        user_id = self.deps.active_user or get_active_user()
+        snapshot = list(self._session_transcript)
+        logger.info("Memory: mid-session save at turn %d (user=%r profile=%r)", self._turn_count, user_id, profile)
+        await self._memory.save_session(profile, snapshot, user_id=user_id)
 
     async def apply_personality(self, profile: str | None) -> str:
         """Apply a new personality (profile) at runtime.
@@ -370,6 +383,10 @@ class GeminiLiveHandler(AsyncStreamHandler):
             tools=tools_config,  # type: ignore[arg-type]
             input_audio_transcription=types.AudioTranscriptionConfig(),
             output_audio_transcription=types.AudioTranscriptionConfig(),
+            context_window_compression=types.ContextWindowCompressionConfig(
+                trigger_tokens=104857,
+                sliding_window=types.SlidingWindow(target_tokens=52428),
+            ),
         )
 
         logger.info(
@@ -529,6 +546,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
         user_id = self.deps.active_user
         logger.warning("Session starting: profile=%r user=%r", profile, user_id)
         self._session_transcript = []  # reset for new session
+        self._turn_count = 0
 
         # Load memory, location, and MCP tools concurrently
         mcp_pool = MCPClientPool.from_profile(profile, config.PROFILES_DIRECTORY)
