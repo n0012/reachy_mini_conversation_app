@@ -180,8 +180,13 @@ class Config:
     )
 
     # Filesystem root containing profile directories, not a Python import path.
+    _profiles_override_env = os.getenv("REACHY_MINI_PROFILES_OVERRIDE")
     _profiles_directory_env = os.getenv("REACHY_MINI_EXTERNAL_PROFILES_DIRECTORY")
-    PROFILES_DIRECTORY = Path(_profiles_directory_env) if _profiles_directory_env else DEFAULT_PROFILES_DIRECTORY
+    PROFILES_DIRECTORY = (
+        Path(_profiles_override_env).expanduser().resolve() if _profiles_override_env
+        else Path(_profiles_directory_env) if _profiles_directory_env
+        else DEFAULT_PROFILES_DIRECTORY
+    )
     _tools_directory_env = os.getenv("REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY")
     TOOLS_DIRECTORY = Path(_tools_directory_env) if _tools_directory_env else None
     AUTOLOAD_EXTERNAL_TOOLS = _env_flag("AUTOLOAD_EXTERNAL_TOOLS", default=False)
@@ -257,6 +262,11 @@ def refresh_runtime_config_from_env() -> None:
     config.GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     config.MODEL_NAME = _resolve_model_name(os.getenv("MODEL_NAME"))
     config.REACHY_MINI_CUSTOM_PROFILE = LOCKED_PROFILE or os.getenv("REACHY_MINI_CUSTOM_PROFILE")
+    override = os.getenv("REACHY_MINI_PROFILES_OVERRIDE")
+    if override:
+        p = Path(override).expanduser().resolve()
+        if p.is_dir():
+            config.PROFILES_DIRECTORY = p
 
 
 def get_backend_choice(model_name: str | None = None) -> str:
