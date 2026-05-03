@@ -229,7 +229,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
 
     async def _mid_session_memory_save(self) -> None:
         """Fire-and-forget memory save triggered every N turns for long sessions."""
-        profile = self.deps.active_profile or "default"
+        profile = self.deps.active_profile or config.REACHY_MINI_CUSTOM_PROFILE or "default"
         user_id = self.deps.active_user or get_active_user()
         snapshot = list(self._session_transcript)
         logger.info("Memory: mid-session save at turn %d (user=%r profile=%r)", self._turn_count, user_id, profile)
@@ -562,7 +562,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
 
     async def _run_live_session(self) -> None:
         """Establish and manage a single Gemini Live session."""
-        profile = self.deps.active_profile or "default"
+        profile = self.deps.active_profile or config.REACHY_MINI_CUSTOM_PROFILE or "default"
         # Initialise active_user from disk (persists across sessions)
         if not self.deps.active_user:
             self.deps.active_user = get_active_user()
@@ -573,6 +573,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
 
         # Check if memory is enabled for this profile (opt-in via memory.txt)
         self._memory_enabled = _profile_memory_enabled(profile)
+        self.deps.memory_enabled = self._memory_enabled
         if not self._memory_enabled:
             logger.info("Memory: disabled for profile=%r (no memory.txt with enabled=true)", profile)
 
@@ -784,7 +785,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
         # Save transcript to memory — awaited so it completes before teardown
         logger.info("Memory: session ended with %d transcript turns", len(self._session_transcript))
         if self._session_transcript and self._memory_enabled:
-            profile = self.deps.active_profile or "default"
+            profile = self.deps.active_profile or config.REACHY_MINI_CUSTOM_PROFILE or "default"
             user_id = self.deps.active_user  # may have been switched mid-session by identify_user
             try:
                 await self._memory.save_session(profile, self._session_transcript, user_id=user_id)

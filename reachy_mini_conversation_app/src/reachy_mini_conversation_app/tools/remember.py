@@ -36,8 +36,9 @@ class RememberTool(Tool):
         profile = getattr(deps, "active_profile", "default") or "default"
         user_id = getattr(deps, "active_user", None)
 
-        if memory is not None:
+        memory_enabled = getattr(deps, "memory_enabled", False)
+        if memory is not None and memory_enabled:
             await memory.remember(profile, fact, user_id=user_id)
             return {"status": "remembered", "fact": fact, "user": user_id or "unknown"}
 
-        return {"status": "skipped", "reason": "No memory backend available."}
+        return {"status": "skipped", "reason": "Memory not enabled for this profile."}
