@@ -508,6 +508,10 @@ class GeminiLiveHandler(AsyncStreamHandler):
             )
             await self.session.send_tool_response(function_responses=[function_response])
 
+            if bg_tool.tool_name == "remember" and isinstance(tool_result, dict) and tool_result.get("status") == "remembered":
+                fact = tool_result.get("fact", "")
+                preview = fact[:60] + "…" if len(fact) > 60 else fact
+                await self.output_queue.put(AdditionalOutputs({"role": "memory", "content": f"saved: {preview}"}))
             if bg_tool.tool_name not in {"remember", "identify_user", "do_nothing"}:
                 await self.output_queue.put(
                     AdditionalOutputs(
