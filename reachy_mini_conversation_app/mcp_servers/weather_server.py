@@ -9,8 +9,9 @@ Usage (stdio transport):
 """
 
 import json
-import urllib.request
 import urllib.error
+import urllib.parse
+import urllib.request
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("weather")
@@ -60,8 +61,6 @@ def get_current_weather(location: str) -> str:
     except Exception as e:
         return f"Weather lookup failed: {e}"
 
-
-import urllib.parse  # noqa: E402 — imported here to keep top clean
 
 if __name__ == "__main__":
     mcp.run(transport="stdio")
