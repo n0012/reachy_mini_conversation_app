@@ -12,332 +12,257 @@ tags:
  - reachy_mini_python_app
 ---
 
-# Reachy Mini conversation app
+# Reachy Mini Conversation App
 
-Conversational app for the Reachy Mini robot combining real-time voice APIs (OpenAI Realtime or Gemini Live), vision pipelines, and choreographed motion libraries.
+Gemini Live voice assistant running on the Reachy Mini robot. Supports real-time conversation, Google Search grounding, per-profile personalities, and persistent memory via Vertex AI Memory Bank.
 
-![Reachy Mini Dance](docs/assets/reachy_mini_dance.gif)
+Fork of [`pollen-robotics/reachy_mini_conversation_app`](https://huggingface.co/spaces/pollen-robotics/reachy_mini_conversation_app).
 
-## Table of contents
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Running the app](#running-the-app)
-- [LLM tools](#llm-tools-exposed-to-the-assistant)
-- [Advanced features](#advanced-features)
-- [Contributing](#contributing)
-- [License](#license)
+---
 
-## Overview
-- Real-time audio conversation loop with `fastrtc` for low-latency streaming. Supports two backends:
-  - **OpenAI Realtime** (`gpt-realtime`) — default
-  - **Gemini Live** (`gemini-3.1-flash-live-preview`) — alternative, using the Google GenAI SDK
-- Vision processing uses the selected realtime backend by default (when camera tool is used), with optional on-device local vision using SmolVLM2 (CPU/GPU/MPS) via `--local-vision`.
-- Layered motion system queues primary moves (dances, emotions, goto poses, breathing) while blending speech-reactive wobble and head-tracking.
-- Async tool dispatch integrates robot motion, camera capture, and optional head-tracking capabilities through a Gradio web UI with live transcripts.
+## Robot
+
+| | |
+|---|---|
+| **SSH user** | `pollen` |
+| **SSH password** | `root` |
+| **IP** | `10.0.0.60` |
+| **OS** | Linux aarch64 (Reachy Mini Pollen image) |
+| **Model** | `gemini-3.1-flash-live-preview` |
+
+---
+
+## One-time setup on the robot
+
+```bash
+ssh pollen@10.0.0.60   # password: root
+
+# Clone and install
+cd ~/dev
+git clone https://github.com/n0012/reachy_mini_conversation_app.git
+/venvs/apps_venv/bin/pip install -e ~/dev/reachy_mini_conversation_app/reachy_mini_conversation_app/
+
+# Copy .env into place (must be here for find_dotenv to find it — launcher CWD is under /venvs/mini_daemon)
+cp ~/dev/reachy_mini_conversation_app/reachy_mini_conversation_app/.env /venvs/mini_daemon/.env
+
+# Copy ADC credentials from Mac
+sshpass -p 'root' scp ~/.config/gcloud/application_default_credentials.json \
+  pollen@10.0.0.60:/home/pollen/.config/gcloud/application_default_credentials.json
+```
+
+---
+
+## Environment variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `GEMINI_API_KEY` | ✅ | Google AI Studio key — [aistudio.google.com](https://aistudio.google.com) |
+| `GCP_PROJECT_ID` | ✅ | GCP project for Vertex AI Memory Bank |
+| `GCP_LOCATION` | ✅ | Default: `us-central1` |
+| `VERTEX_REASONING_ENGINE_ID` | ✅ | Agent Engine instance ID |
+| `GOOGLE_APPLICATION_CREDENTIALS` | ✅ | Path to ADC or service account key |
+| `MODEL_NAME` | optional | Default: `gemini-3.1-flash-live-preview` |
+| `GOOGLE_SEARCH_GROUNDING` | optional | Set `1` to enable Google Search globally |
+| `REACHY_MINI_CUSTOM_PROFILE` | optional | Profile name to load (default: `default`) |
+| `REACHY_MINI_PROFILES_OVERRIDE` | optional | Absolute path to profiles directory |
+| `REACHY_MINI_EXTERNAL_PROFILES_DIRECTORY` | optional | Path to additional profiles |
+| `REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY` | optional | Path to additional tool `.py` files |
+| `AUTOLOAD_EXTERNAL_TOOLS` | optional | Set `1` to auto-load all tools in external tools dir |
+
+---
+
+## Deploying
+
+### SSH direct deploy (recommended while developing locally)
+
+Pushes local source directly to the robot — no GitHub intermediary.
+
+```bash
+# From the repo root on Mac
+rsync -avz --exclude='__pycache__' --exclude='*.pyc' --exclude='.git' \
+  reachy_mini_conversation_app/src/reachy_mini_conversation_app/ \
+  pollen@10.0.0.60:~/dev/reachy_mini_conversation_app/reachy_mini_conversation_app/src/reachy_mini_conversation_app/
+
+# Sync profiles if changed
+rsync -avz \
+  reachy_mini_conversation_app/profiles/ \
+  pollen@10.0.0.60:~/dev/reachy_mini_conversation_app/reachy_mini_conversation_app/profiles/
+```
+
+The install is editable so rsync'd files are live immediately. Restart the app on the robot to pick up changes.
+
+### Git pull deploy (when pushing to GitHub first)
+
+```bash
+sshpass -p 'root' ssh pollen@10.0.0.60 \
+  'cd ~/dev/reachy_mini_conversation_app/reachy_mini_conversation_app && git pull'
+```
+
+### Refreshing ADC credentials
+
+ADC from `gcloud auth application-default login` expires periodically. When it does, Vertex AI Memory Bank reads and writes silently fail.
+
+```bash
+# 1. Re-authenticate on Mac
+gcloud auth application-default login
+
+# 2. Copy to robot
+sshpass -p 'root' scp \
+  ~/.config/gcloud/application_default_credentials.json \
+  pollen@10.0.0.60:/home/pollen/.config/gcloud/application_default_credentials.json
+```
+
+Long-term fix: use a service account key (doesn't expire). Set `GOOGLE_APPLICATION_CREDENTIALS` in `.env`.
+
+### Restore `.env` after reboot
+
+The `.env` at `/venvs/mini_daemon/.env` doesn't survive reboots:
+
+```bash
+sshpass -p 'root' ssh pollen@10.0.0.60 \
+  'cp ~/dev/reachy_mini_conversation_app/reachy_mini_conversation_app/.env /venvs/mini_daemon/.env'
+```
+
+### Publishing to HuggingFace Space (app store distribution)
+
+```bash
+git remote add hf https://huggingface.co/spaces/n0012/reachy_mini_conversation_app_gemini
+git push hf main
+```
+
+---
+
+## Voices
+
+All 30 Gemini Live voices. Source: [configure-language-voice](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/live-api/configure-language-voice)
+
+| Voice | Character | Voice | Character |
+|---|---|---|---|
+| Achird | Friendly | Laomedeia | Upbeat |
+| Achernar | Soft | Leda | Youthful |
+| Algenib | Gravelly | Alnilam | Firm |
+| Algieba | Smooth | Orus | Firm |
+| Aoede | Breezy | Pulcherrima | Forward |
+| Autonoe | Bright | Puck | Upbeat |
+| Callirrhoe | Easy-going | Rasalgethi | Informative |
+| Charon | Informative | Sadachbia | Lively |
+| Despina | Smooth | Sadaltager | Knowledgeable |
+| Enceladus | Breathy | Schedar | Even |
+| Erinome | Clear | Sulafat | Warm |
+| Fenrir | Excitable | Umbriel | Easy-going |
+| Gacrux | Mature | Vindemiatrix | Gentle |
+| Iapetus | Clear | Zephyr | Bright |
+| Kore | Firm | Zubenelgenubi | Casual |
+
+Set voice per profile in `profiles/{name}/voice.txt`. Current default: **Sadachbia** (Lively).
+
+---
+
+## Profiles
+
+Each profile is a folder under `profiles/`:
+
+```
+profiles/my_profile/
+  instructions.txt    — system prompt
+  tools.txt           — enabled tools (one per line)
+  voice.txt           — Gemini voice name
+  grounding.txt       — optional: google_search=true
+  mcp_servers.json    — optional: MCP server list
+```
+
+Set `REACHY_MINI_CUSTOM_PROFILE=my_profile` in `.env` to activate.
+
+---
+
+## Memory (Vertex AI Memory Bank)
+
+Persistent per-user memory backed by Agent Engine instance `YOUR_ENGINE_ID` on project `losiern-vibe`.
+
+- **Load**: memories retrieved at session start and injected into the system prompt
+- **Save**: transcript ingested after session ends
+- **Remember tool**: model can explicitly store facts mid-conversation
+- **Multi-user**: `identify_user` tool scopes memories per person; active user persisted in `~/.reachy_mini/active_user.json`
+
+GCP setup (one-time):
+
+```bash
+gcloud services enable aiplatform.googleapis.com --project=YOUR_PROJECT_ID
+# Create a Reasoning Engine instance, note the ID → VERTEX_REASONING_ENGINE_ID in .env
+```
+
+---
+
+## Tools
+
+| Tool | Description |
+|---|---|
+| `dance` | Play a named or random dance move |
+| `stop_dance` | Stop current dance |
+| `play_emotion` | Play a pre-recorded emotion clip |
+| `stop_emotion` | Stop current emotion |
+| `camera` | Capture a frame and ask Gemini about it |
+| `head_tracking` | Toggle face-tracking head movement |
+| `move_head` | Move head left/right/up/down/front |
+| `remember` | Store a fact in long-term memory |
+| `identify_user` | Switch active user for memory scoping |
+| `do_nothing` | Explicitly stay still and silent |
+
+---
+
+## Local testing (Mac — no robot required)
+
+```bash
+cd /Users/nick/dev/github/n0012/personal/n0012-monorepo/reachymini
+PYTHONPATH=reachy_mini_conversation_app/src uv run --no-project pytest \
+  reachy_mini_conversation_app/tests/test_gemini_only_config.py \
+  reachy_mini_conversation_app/tests/test_voices.py \
+  reachy_mini_conversation_app/tests/test_config_name_collisions.py -v
+```
+
+---
 
 ## Architecture
 
-The app follows a layered architecture connecting the user, AI services, and robot hardware:
-
-<p align="center">
-  <img src="docs/assets/conversation_app_arch.svg" alt="Architecture Diagram" width="600"/>
-</p>
-
-## Installation
-
-> [!IMPORTANT]
-> Before using this app, you need to install [Reachy Mini's SDK](https://github.com/pollen-robotics/reachy_mini/).<br>
-> Windows support is currently experimental and has not been extensively tested. Use with caution.
-
-<details open>
-<summary><b>Using uv (recommended)</b></summary>
-
-Set up the project quickly using [uv](https://docs.astral.sh/uv/):
-
-```bash
-# macOS (Homebrew)
-uv venv --python /opt/homebrew/bin/python3.12 .venv
-
-# Linux / Windows (Python in PATH)
-uv venv --python python3.12 .venv
-
-source .venv/bin/activate
-uv sync
-```
-
-> **Note:** To reproduce the exact dependency set from this repo's `uv.lock`, run `uv sync --frozen`. This ensures `uv` installs directly from the lockfile without re-resolving or updating any versions.
-
-**Install optional features:**
-```bash
-uv sync --extra local_vision         # Local PyTorch/Transformers vision
-uv sync --extra yolo_vision          # YOLO face-detection backend for head tracking
-uv sync --extra mediapipe_vision     # MediaPipe-based head-tracking
-uv sync --extra all_vision           # All vision features
-```
-
-Combine extras or include dev dependencies:
-```bash
-uv sync --extra all_vision --group dev
-```
-
-</details>
-
-<details>
-<summary><b>Using pip</b></summary>
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
-```
-
-**Install optional features:**
-```bash
-pip install -e .[local_vision]          # Local vision stack
-pip install -e .[yolo_vision]           # YOLO face-detection backend for head tracking
-pip install -e .[mediapipe_vision]      # MediaPipe-based vision
-pip install -e .[all_vision]            # All vision features
-pip install -e .[dev]                   # Development tools
-```
-
-Some wheels (like PyTorch) are large and require compatible CUDA or CPU builds—make sure your platform matches the binaries pulled in by each extra.
-
-</details>
-
-### Optional dependency groups
-
-| Extra | Purpose | Notes |
-|-------|---------|-------|
-| `local_vision` | Run the local VLM (SmolVLM2) through PyTorch/Transformers | GPU recommended. Ensure compatible PyTorch builds for your platform. |
-| `yolo_vision` | YOLOv11n face detection via `ultralytics` and `supervision` | Used as the `yolo` head-tracking backend. Runs on CPU (default). GPU improves performance. |
-| `mediapipe_vision` | Lightweight landmark tracking with MediaPipe | Works on CPU. Enables `--head-tracker mediapipe`. |
-| `all_vision` | Convenience alias installing every vision extra | Install when you want the flexibility to experiment with every provider. |
-| `dev` | Developer tooling (`pytest`, `ruff`, `mypy`) | Development-only dependencies. Use `--group dev` with uv or `[dev]` with pip. |
-
-**Note:** `dev` is a dependency group (not an optional dependency). With uv, use `--group dev`. With pip, use `[dev]`.
-
-## Configuration
-
-1. Copy `.env.example` to `.env`
-2. Fill in your API key and backend choice
-
-| Variable | Description |
-|----------|-------------|
-| `OPENAI_API_KEY` | Optional override or fallback for OpenAI mode. In the headless settings flow, the app can use bundled OpenAI access when available; set your own key to override it or provide a fallback. |
-| `GEMINI_API_KEY` | Required for Gemini mode. Also accepts `GOOGLE_API_KEY`. Get one at [aistudio.google.com](https://aistudio.google.com/apikey). |
-| `BACKEND_PROVIDER` | Realtime backend to use: `openai` (default) or `gemini`. |
-| `MODEL_NAME` | Optional model override for the selected backend. Defaults to `gpt-realtime` for OpenAI and `gemini-3.1-flash-live-preview` for Gemini Live. |
-| `HF_HOME` | Cache directory for local Hugging Face downloads (only used with `--local-vision` flag, defaults to `./cache`). |
-| `HF_TOKEN` | Optional token for Hugging Face access (for gated/private assets). |
-| `LOCAL_VISION_MODEL` | Hugging Face model path for local vision processing (only used with `--local-vision` flag, defaults to `HuggingFaceTB/SmolVLM2-2.2B-Instruct`). |
-
-### Switching to Gemini Live
-
-To use Gemini Live instead of OpenAI Realtime, update your `.env`:
-
-```env
-BACKEND_PROVIDER="gemini"
-MODEL_NAME="gemini-3.1-flash-live-preview"
-GEMINI_API_KEY=your-gemini-api-key
-```
-
-`BACKEND_PROVIDER` is the primary switch. The app still falls back to `MODEL_NAME` for compatibility with older configs, and all features (tools, profiles, head tracking) work with both backends.
-
-> [!NOTE]
-> Gemini Live uses a different set of voices: Aoede, Charon, Fenrir, Kore (default), Leda, Orus, Puck, Zephyr. If your profile's `voice.txt` specifies an OpenAI voice, it will fall back to Kore.
-
-## Running the app
-
-Activate your virtual environment, then launch:
-
-```bash
-reachy-mini-conversation-app
-```
-
-> [!TIP]
-> Make sure the Reachy Mini daemon is running before launching the app. If you see a `TimeoutError`, it means the daemon isn't started. See [Reachy Mini's SDK](https://github.com/pollen-robotics/reachy_mini/) for setup instructions.
-
-The app runs in console mode by default. Add `--gradio` to launch a web UI at http://127.0.0.1:7860/ (required for simulation mode). Vision and head-tracking options are described in the CLI table below.
-
-### CLI options
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--head-tracker {yolo,mediapipe}` | `None` | Select a head-tracking backend when a camera is available. `yolo` uses a local YOLO face detector, `mediapipe` comes from the `reachy_mini_toolbox` package. Requires the matching optional extra. |
-| `--no-camera` | `False` | Run without camera capture or head tracking. |
-| `--local-vision` | `False` | Use the local vision model (SmolVLM2) for camera-tool requests instead of the selected realtime backend vision. Requires `local_vision` extra to be installed. |
-| `--gradio` | `False` | Launch the Gradio web UI. Without this flag, runs in console mode. Required when running in simulation mode. |
-| `--robot-name` | `None` | Optional. Connect to a specific robot by name when running multiple daemons on the same subnet. See [Multiple robots on the same subnet](#advanced-features). |
-| `--debug` | `False` | Enable verbose logging for troubleshooting. |
-
-### Examples
-
-```bash
-# Run with MediaPipe head tracking
-reachy-mini-conversation-app --head-tracker mediapipe
-
-# Run with the YOLO face-detection backend for head tracking
-reachy-mini-conversation-app --head-tracker yolo
-
-# Run with local vision processing (requires local_vision extra)
-reachy-mini-conversation-app --local-vision
-
-# Audio-only conversation (no camera)
-reachy-mini-conversation-app --no-camera
-
-# Launch with Gradio web interface
-reachy-mini-conversation-app --gradio
-```
-
-> [!WARNING]
-> `--local-vision` is not supported when running the conversation app directly on Reachy Mini Wireless / the Raspberry Pi. For local vision, keep the daemon running on the robot and start the conversation app from your laptop or workstation instead.
-
-## LLM tools exposed to the assistant
-
-| Tool | Action | Dependencies |
-|------|--------|--------------|
-| `move_head` | Queue a head pose change (left/right/up/down/front). | Core install only. |
-| `camera` | Capture the latest camera frame and analyze it with the selected realtime backend or the local vision model. | Requires camera worker. Uses local vision when `--local-vision` is enabled. |
-| `head_tracking` | Enable or disable head-tracking offsets (not identity recognition - only detects and tracks head position). | Camera worker with configured head tracker (`--head-tracker`). |
-| `dance` | Queue a dance from `reachy_mini_dances_library`. | Core install only. |
-| `stop_dance` | Clear queued dances. | Core install only. |
-| `play_emotion` | Play a recorded emotion clip via Hugging Face datasets. | Core install only. Uses the default open emotions dataset: [`pollen-robotics/reachy-mini-emotions-library`](https://huggingface.co/datasets/pollen-robotics/reachy-mini-emotions-library). |
-| `stop_emotion` | Clear queued emotions. | Core install only. |
-| `do_nothing` | Explicitly remain idle. | Core install only. |
-
-## Advanced features
-
-Built-in motion content is published as open Hugging Face datasets:
-- Emotions: [`pollen-robotics/reachy-mini-emotions-library`](https://huggingface.co/datasets/pollen-robotics/reachy-mini-emotions-library)
-- Dances: [`pollen-robotics/reachy-mini-dances-library`](https://huggingface.co/datasets/pollen-robotics/reachy-mini-dances-library)
-
-<details>
-<summary><b>Custom profiles</b></summary>
-
-Create custom profiles with dedicated instructions and enabled tools.
-
-Set `REACHY_MINI_CUSTOM_PROFILE=<name>` to load `profiles/<name>/` (see `.env.example`). If unset, the `default` profile is used.
-
-Each profile should include `instructions.txt` (prompt text). `tools.txt` (list of allowed tools) is recommended. If missing for a non-default profile, the app falls back to `profiles/default/tools.txt`. Profiles can optionally contain custom tool implementations.
-
-**Custom instructions:**
-
-Write plain-text prompts in `instructions.txt`. To reuse shared prompt pieces, add lines like:
-```
-[passion_for_lobster_jokes]
-[identities/witty_identity]
-```
-Each placeholder pulls the matching file under `src/reachy_mini_conversation_app/prompts/` (nested paths allowed). See `profiles/example/` for a reference layout.
-
-**Enabling tools:**
-
-List enabled tools in `tools.txt`, one per line. Prefix with `#` to comment out:
-```
-play_emotion
-# move_head
-
-# My custom tool defined locally
-sweep_look
-```
-Tools are resolved first from Python files in the profile folder (custom tools), then from the core library `src/reachy_mini_conversation_app/tools/` (like `dance`, `head_tracking`).
-
-**Custom tools:**
-
-On top of built-in tools found in the core library, you can implement custom tools specific to your profile by adding Python files in the profile folder.
-Custom tools must subclass `reachy_mini_conversation_app.tools.core_tools.Tool` (see `profiles/example/sweep_look.py`).
-
-**Edit personalities from the UI:**
-
-When running with `--gradio`, open the "Personality" accordion:
-- Select among available profiles (folders under `profiles/`) or the built‑in default.
-- Click "Apply" to update the current session instructions live.
-- Create a new personality by entering a name and instructions text. It stores files under `profiles/<name>/` and copies `tools.txt` from the `default` profile.
-
-Note: The "Personality" panel updates the conversation instructions. Tool sets are loaded at startup from `tools.txt` and are not hot‑reloaded.
-
-</details>
-
-<details>
-<summary><b>Locked profile mode</b></summary>
-
-To create a locked variant of the app that cannot switch profiles, edit `src/reachy_mini_conversation_app/config.py` and set the `LOCKED_PROFILE` constant to the desired profile name:
-```python
-LOCKED_PROFILE: str | None = "mars_rover"  # Lock to this profile
-```
-When `LOCKED_PROFILE` is set, the app always uses that profile, ignoring `REACHY_MINI_CUSTOM_PROFILE` env var & the Gradio UI shows "(locked)" and disables all profile editing controls.
-This is useful for creating dedicated clones of the app with a fixed personality. Clone scripts can simply edit this constant to lock the variant.
-
-</details>
-
-<details>
-<summary><b>External profiles and tools</b></summary>
-
-You can extend the app with profiles/tools stored outside the repository defaults.
-
-- Core profiles are under `profiles/`.
-- Core tools are under `src/reachy_mini_conversation_app/tools/`.
-
-**Recommended layout:**
-
-```text
-external_content/
-├── external_profiles/
-│   └── my_profile/
-│       ├── instructions.txt
-│       ├── tools.txt        # optional (see fallback behavior below)
-│       └── voice.txt        # optional
-└── external_tools/
-    └── my_custom_tool.py
-```
-
-**Environment variables:**
-
-Set these values in your `.env` (copy from `.env.example`):
-
-```env
-REACHY_MINI_CUSTOM_PROFILE=my_profile
-REACHY_MINI_EXTERNAL_PROFILES_DIRECTORY=./external_content/external_profiles
-REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY=./external_content/external_tools
-# Optional convenience mode:
-# AUTOLOAD_EXTERNAL_TOOLS=1
-```
-
-**Loading behavior:**
-
-- **Default/strict mode**: `tools.txt` defines enabled tools explicitly. Every name in `tools.txt` must resolve to either a built-in tool (`src/reachy_mini_conversation_app/tools/`) or an external tool module in `REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY`.
-- **Convenience mode** (`AUTOLOAD_EXTERNAL_TOOLS=1`): all valid `*.py` tool files in `REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY` are auto-added.
-- **External profile fallback**: if the selected external profile has no `tools.txt`, the app falls back to built-in `profiles/default/tools.txt`.
-
-This supports both:
-1. Downloaded external tools used with built-in/default profile.
-2. Downloaded external profiles used with built-in default tools.
-
-</details>
-
-<details>
-<summary><b>Multiple robots on the same subnet</b></summary>
-
-If you run multiple Reachy Mini daemons on the same network, use:
-
-```bash
-reachy-mini-conversation-app --robot-name <name>
-```
-
-`<name>` must match the daemon's `--robot-name` value so the app connects to the correct robot.
-
-</details>
-
-## Contributing
-
-We welcome bug fixes, features, profiles, and documentation improvements. Please review our
-[contribution guide](CONTRIBUTING.md) for branch conventions, quality checks, and PR workflow.
-
-Quick start:
-- Fork and clone the repo
-- Follow the [installation steps](#installation) (include the `dev` dependency group)
-- Run contributor checks listed in [CONTRIBUTING.md](CONTRIBUTING.md)
+Key files (paths relative to `src/reachy_mini_conversation_app/`):
+
+| File | Role |
+|---|---|
+| `main.py` | Entrypoint — instantiates `GeminiLiveHandler`, memory backend, MCP pool |
+| `config.py` | Constants: `AVAILABLE_VOICES`, `DEFAULT_MODEL_NAME`, `DEFAULT_VOICE` |
+| `gemini_live.py` | Gemini handler; `_build_live_config()` builds `LiveConnectConfig` |
+| `memory.py` | `VertexMemoryBackend` and `FileMemoryBackend`; `_get_token()` for ADC/SA auth |
+| `tools/core_tools.py` | `Tool` ABC — base class for all tools including MCP adapters |
+| `tools/__init__.py` | 3-tier loader: profile tools → core tools → external dir |
+| `prompts.py` | `_expand_prompt_includes()` — handles memory injection and prompt includes |
+| `profiles/{name}/` | Profile bundles: `instructions.txt`, `tools.txt`, `voice.txt`, `mcp_servers.json` |
+
+SDK: `google-genai >= 1.0.0`. Auth: `google-auth` (ADC or service account key).
+
+---
+
+## Known limitations
+
+| Issue | Root cause | Workaround |
+|---|---|---|
+| Session ends after ~10 min | Live API hard limit | Automatic restart; memory saves on close |
+| `google_search` results stale on re-ask | Grounding caches per topic per session | Use an MCP function tool for real-time endpoints instead |
+| Function calling blocks audio by default | Model waits for tool result | Add `"behavior": "NON_BLOCKING"` to function declarations in `_openai_tool_specs_to_gemini()` |
+| `.env` lost on reboot | Launcher CWD quirk — must be at `/venvs/mini_daemon/.env` | Re-run the cp command after reboot (see Deploying section) |
+
+---
+
+## Sources
+
+| Source | What we took from it |
+|---|---|
+| [pollen-robotics/reachy_mini_conversation_app](https://huggingface.co/spaces/pollen-robotics/reachy_mini_conversation_app) | Base fork — robot integration, profile system, tool plugin loader, Gemini Live handler |
+| [SJang1/ha-gemini-live](https://github.com/SJang1/ha-gemini-live) | Google Search grounding pattern, native Gemini Live speech-to-speech architecture |
+| [Shubhamsaboo/openclaw-vertexai-memorybank](https://github.com/Shubhamsaboo/openclaw-vertexai-memorybank) | Vertex AI Memory Bank REST API surface, scoping model, noise filter thresholds |
+| [google-gemini/cookbook: Get_started_LiveAPI_tools.ipynb](https://github.com/google-gemini/cookbook/blob/main/quickstarts/Get_started_LiveAPI_tools.ipynb) | Confirms raw dict format for `google_search` + `function_declarations` together |
+| [google-gemini/gemini-skills: gemini-live-api-dev](https://github.com/google-gemini/gemini-skills/blob/main/skills/gemini-live-api-dev/SKILL.md) | Context compression for long sessions, `send_realtime_input` vs `send_client_content` |
+
+---
 
 ## License
 
