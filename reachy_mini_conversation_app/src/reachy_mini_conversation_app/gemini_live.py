@@ -564,6 +564,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
     async def _run_live_session(self) -> None:
         """Establish and manage a single Gemini Live session."""
         profile = self.deps.active_profile or config.REACHY_MINI_CUSTOM_PROFILE or "default"
+        self.deps.active_profile = profile  # ensure tools (remember, identify_user) see correct profile
         # Initialise active_user from disk (persists across sessions)
         if not self.deps.active_user:
             self.deps.active_user = get_active_user()
