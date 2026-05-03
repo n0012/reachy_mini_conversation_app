@@ -42,15 +42,18 @@ Installing the package is all it takes — no separate registration step.
 ## One-time setup on the robot
 
 ```bash
-ssh pollen@10.0.0.137   # password: root
+ssh pollen@10.0.0.60   # password: root
 
-# Install uv if not already present
-curl -LsSf https://astral.sh/uv/install.sh | sh
+# Clone the app repo
+cd ~/dev
+git clone https://github.com/n0012/reachy_mini_conversation_app.git
 
-# Clone this monorepo (or just the reachymini subtree)
-cd ~
-git clone https://github.com/n0012/n0012-monorepo.git
-cd n0012-monorepo/reachymini/reachy_mini_conversation_app
+# Install into the launcher's venv (apps_venv) — NOT uv sync
+/venvs/apps_venv/bin/pip install -e ~/dev/reachy_mini_conversation_app/reachy_mini_conversation_app/
+
+# Copy ADC credentials from Mac (run this on Mac)
+scp ~/.config/gcloud/application_default_credentials.json \
+  pollen@10.0.0.60:/home/pollen/.config/gcloud/application_default_credentials.json
 
 # Create venv and install
 uv venv --python python3.12 .venv
@@ -115,11 +118,11 @@ export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 ## Updating the robot
 
 ```bash
-ssh pollen@10.0.0.137
-cd ~/n0012-monorepo/reachymini/reachy_mini_conversation_app
-git pull
-source .venv/bin/activate
-uv sync
+# One command from Mac (skips LFS GIF, installs into launcher venv)
+sshpass -p 'root' ssh pollen@10.0.0.60 \
+  "cd ~/dev/reachy_mini_conversation_app && \
+   GIT_LFS_SKIP_SMUDGE=1 git pull && \
+   /venvs/apps_venv/bin/pip install -e reachy_mini_conversation_app/"
 ```
 
 Pull upstream bug fixes:
