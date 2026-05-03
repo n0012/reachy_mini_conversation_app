@@ -412,12 +412,13 @@ class LocalStream:
 
                 # Persist all env vars to ~/.reachy_mini/.env
                 updates: dict[str, str] = {
-                    "GEMINI_API_KEY": payload.gemini_api_key.strip(),
                     "GCP_PROJECT_ID": payload.gcp_project_id.strip(),
                     "GCP_LOCATION": payload.gcp_location.strip() or "us-central1",
                     "VERTEX_REASONING_ENGINE_ID": payload.vertex_reasoning_engine_id.strip(),
                     "GOOGLE_APPLICATION_CREDENTIALS": str(sa_path),
                 }
+                if payload.gemini_api_key.strip():
+                    updates["GEMINI_API_KEY"] = payload.gemini_api_key.strip()
                 if payload.google_search_grounding:
                     updates["GOOGLE_SEARCH_GROUNDING"] = "1"
                 self._persist_env_values(updates)

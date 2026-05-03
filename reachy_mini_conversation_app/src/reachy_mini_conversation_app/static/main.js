@@ -484,6 +484,7 @@ async function init() {
       }
     } catch {}
     document.getElementById("cfg-save").addEventListener("click", async () => {
+      const geminiKey = (document.getElementById("cfg-gemini-key").value || "").trim();
       const gcpProject = (document.getElementById("cfg-gcp-project").value || "").trim();
       const gcpLocation = (document.getElementById("cfg-gcp-location").value || "us-central1").trim();
       const engineId = (document.getElementById("cfg-engine-id").value || "").trim();
@@ -499,11 +500,12 @@ async function init() {
       }
       setStatusMessage(cfgStatus, "Saving…");
       try {
-        const payload = { gcp_project_id: gcpProject, gcp_location: gcpLocation,
-          vertex_reasoning_engine_id: engineId, service_account_json: saJson || "{}",
-          voice: "", google_search_grounding: grounding };
+        const payload = { gemini_api_key: geminiKey, gcp_project_id: gcpProject,
+          gcp_location: gcpLocation, vertex_reasoning_engine_id: engineId,
+          service_account_json: saJson || "{}", voice: "", google_search_grounding: grounding };
         await submitSetup(payload);
         setStatusMessage(cfgStatus, "Configuration updated.", "ok");
+        document.getElementById("cfg-gemini-key").value = "";
         document.getElementById("cfg-sa-json").value = "";
       } catch (e) {
         setStatusMessage(cfgStatus, `Failed: ${e.message || "unknown error"}`, "error");
