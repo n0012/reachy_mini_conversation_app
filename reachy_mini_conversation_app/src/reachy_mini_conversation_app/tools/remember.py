@@ -34,9 +34,10 @@ class RememberTool(Tool):
         # Access the memory backend via the handler stored on deps (set in gemini_live.py)
         memory = getattr(deps, "memory_backend", None)
         profile = getattr(deps, "active_profile", "default") or "default"
+        user_id = getattr(deps, "active_user", None)
 
         if memory is not None:
-            await memory.remember(profile, fact)
-            return {"status": "remembered", "fact": fact}
+            await memory.remember(profile, fact, user_id=user_id)
+            return {"status": "remembered", "fact": fact, "user": user_id or "unknown"}
 
         return {"status": "skipped", "reason": "No memory backend available."}

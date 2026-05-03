@@ -35,6 +35,32 @@ logger = logging.getLogger(__name__)
 
 MEMORY_SEARCH_QUERY = "What do I know about this user, their preferences, and our recent conversations?"
 _DEFAULT_MEMORY_DIR = Path.home() / ".reachy_mini" / "memory"
+_ACTIVE_USER_FILE = Path.home() / ".reachy_mini" / "active_user.json"
+DEFAULT_USER_ID = "unknown"
+
+
+def get_active_user() -> str:
+    """Return the active user_id from disk, falling back to DEFAULT_USER_ID."""
+    try:
+        if _ACTIVE_USER_FILE.exists():
+            data = json.loads(_ACTIVE_USER_FILE.read_text())
+            return data.get("user_id", DEFAULT_USER_ID)
+    except Exception as exc:
+        logger.warning("active_user read failed: %s", exc)
+    return DEFAULT_USER_ID
+
+
+def set_active_user(user_id: str) -> None:
+    """Persist the active user_id to disk so future sessions remember it."""
+    user_id = (user_id or "").strip().lower().replace(" ", "_")
+    if not user_id:
+        return
+    try:
+        _ACTIVE_USER_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _ACTIVE_USER_FILE.write_text(json.dumps({"user_id": user_id}))
+        logger.info("Active user set to %r", user_id)
+    except Exception as exc:
+        logger.warning("active_user write failed: %s", exc)
 
 
 # ── Protocol ─────────────────────────────────────────────────────────────────
@@ -43,15 +69,15 @@ _DEFAULT_MEMORY_DIR = Path.home() / ".reachy_mini" / "memory"
 class MemoryBackend(Protocol):
     """Interface all memory backends must satisfy."""
 
-    async def load_context(self, profile: str) -> str:
+    async def load_context(self, profile: str, user_id: str | None = None) -> str:
         """Return a text block injected into system_instruction at session start."""
         ...
 
-    async def save_session(self, profile: str, transcript: list[dict]) -> None:
+    async def save_session(self, profile: str, transcript: list[dict], user_id: str | None = None) -> None:
         """Persist a completed session transcript (fire-and-forget is fine)."""
         ...
 
-    async def remember(self, profile: str, fact: str) -> None:
+    async def remember(self, profile: str, fact: str, user_id: str | None = None) -> None:
         """Store an explicit fact the model decided to keep."""
         ...
 
@@ -118,16 +144,17 @@ class VertexMemoryBackend:
     def _url(self, path: str) -> str:
         return f"{self._base}/{self._parent}/{path}"
 
-    def _scope(self, profile: str) -> dict:
-        return {"user_id": "default", "profile": profile}
+    def _scope(self, profile: str, user_id: str | None = None) -> dict:
+        return {"user_id": user_id or get_active_user(), "profile": profile}
 
-    async def load_context(self, profile: str) -> str:
+    async def load_context(self, profile: str, user_id: str | None = None) -> str:
         """Retrieve relevant memories and format as bullet list."""
+        scope = self._scope(profile, user_id)
         try:
             resp = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: _api("POST", self._url("memories:retrieve"), {
-                    "scope": self._scope(profile),
+                    "scope": scope,
                     "similarity_search_params": {
                         "search_query": MEMORY_SEARCH_QUERY,
                         "top_k": 15,
@@ -136,20 +163,20 @@ class VertexMemoryBackend:
             )
             memories = resp.get("retrievedMemories", [])
             if not memories:
-                logger.info("Memory: no stored memories for profile %r", profile)
+                logger.info("Memory: no stored memories for user=%r profile=%r", scope["user_id"], profile)
                 return ""
             facts = [m["memory"]["fact"] for m in memories if m.get("memory", {}).get("fact")]
             if not facts:
                 logger.info("Memory: retrieved %d entries but none had facts", len(memories))
                 return ""
-            logger.info("Memory: injecting %d facts into system prompt for profile %r", len(facts), profile)
+            logger.info("Memory: injecting %d facts (user=%r profile=%r)", len(facts), scope["user_id"], profile)
             bullet_list = "\n".join(f"- {f}" for f in facts)
-            return f"## What I remember\n{bullet_list}"
+            return f"## What I remember about {scope['user_id']}\n{bullet_list}"
         except Exception as exc:
-            logger.warning("Memory: load failed (profile=%r): %s", profile, exc)
+            logger.warning("Memory: load failed (user=%r profile=%r): %s", scope["user_id"], profile, exc)
             return ""
 
-    async def save_session(self, profile: str, transcript: list[dict]) -> None:
+    async def save_session(self, profile: str, transcript: list[dict], user_id: str | None = None) -> None:
         """Ingest transcript into Memory Bank. Awaited at session close."""
         if not transcript:
             return
@@ -160,30 +187,34 @@ class VertexMemoryBackend:
         ]
         if not events:
             return
+        scope = self._scope(profile, user_id)
         await asyncio.get_event_loop().run_in_executor(
             None,
-            lambda: self._generate_memories(profile, {"direct_contents_source": {"events": events}}),
+            lambda: self._generate_memories(scope, {"direct_contents_source": {"events": events}}),
         )
 
-    async def remember(self, profile: str, fact: str) -> None:
+    async def remember(self, profile: str, fact: str, user_id: str | None = None) -> None:
         """Store an explicit fact. Awaited so the call completes."""
+        scope = self._scope(profile, user_id)
         await asyncio.get_event_loop().run_in_executor(
             None,
-            lambda: self._generate_memories(profile, {
+            lambda: self._generate_memories(scope, {
                 "direct_memories_source": {"direct_memories": [{"fact": fact}]}
             }),
         )
 
-    def _generate_memories(self, profile: str, source: dict) -> None:
+    def _generate_memories(self, scope: dict, source: dict) -> None:
         try:
             resp = _api("POST", self._url("memories:generate"), {
-                "scope": self._scope(profile),
+                "scope": scope,
                 **source,
             })
             op = resp.get("name", "?").split("/")[-1]
-            logger.info("Memory: generate LRO started (op=%s, profile=%r)", op, profile)
+            logger.info("Memory: generate LRO started (op=%s, user=%r profile=%r)",
+                        op, scope.get("user_id"), scope.get("profile"))
         except Exception as exc:
-            logger.warning("Memory: generate failed (profile=%r): %s", profile, exc)
+            logger.warning("Memory: generate failed (user=%r profile=%r): %s",
+                           scope.get("user_id"), scope.get("profile"), exc)
 
 
 # ── File-based fallback ───────────────────────────────────────────────────────
@@ -192,21 +223,22 @@ class FileMemoryBackend:
     """Local Markdown file memory for development without GCP.
 
     Layout:
-      ~/.reachy_mini/memory/{profile}/MEMORY.md   — durable facts
-      ~/.reachy_mini/memory/{profile}/last.md     — most recent session summary
+      ~/.reachy_mini/memory/{user_id}/{profile}/MEMORY.md  — durable facts
+      ~/.reachy_mini/memory/{user_id}/{profile}/last.md    — most recent session summary
     """
 
     def __init__(self, base_dir: Path = _DEFAULT_MEMORY_DIR) -> None:
         self._base = base_dir
 
-    def _profile_dir(self, profile: str) -> Path:
-        d = self._base / profile
+    def _profile_dir(self, profile: str, user_id: str | None = None) -> Path:
+        u = user_id or get_active_user()
+        d = self._base / u / profile
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    async def load_context(self, profile: str) -> str:
+    async def load_context(self, profile: str, user_id: str | None = None) -> str:
         parts: list[str] = []
-        d = self._profile_dir(profile)
+        d = self._profile_dir(profile, user_id)
         for fname in ("MEMORY.md", "last.md"):
             f = d / fname
             if f.exists():
@@ -215,10 +247,10 @@ class FileMemoryBackend:
                     parts.append(text)
         return "\n\n".join(parts)
 
-    async def save_session(self, profile: str, transcript: list[dict]) -> None:
+    async def save_session(self, profile: str, transcript: list[dict], user_id: str | None = None) -> None:
         if not transcript:
             return
-        d = self._profile_dir(profile)
+        d = self._profile_dir(profile, user_id)
         lines = [f"## Session — {date.today().isoformat()}"]
         for t in transcript:
             role = t.get("role", "?")
@@ -227,8 +259,8 @@ class FileMemoryBackend:
                 lines.append(f"**{role}:** {content}")
         (d / "last.md").write_text("\n\n".join(lines) + "\n", encoding="utf-8")
 
-    async def remember(self, profile: str, fact: str) -> None:
-        d = self._profile_dir(profile)
+    async def remember(self, profile: str, fact: str, user_id: str | None = None) -> None:
+        d = self._profile_dir(profile, user_id)
         memory_file = d / "MEMORY.md"
         existing = memory_file.read_text(encoding="utf-8") if memory_file.exists() else ""
         if fact not in existing:

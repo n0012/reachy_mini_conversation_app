@@ -68,6 +68,7 @@ class ToolDependencies:
     motion_duration_s: float = 1.0
     memory_backend: Any | None = None  # MemoryBackend from memory.py
     active_profile: str | None = None  # Current profile name for memory scoping
+    active_user: str | None = None     # Current user_id for memory scoping (multi-user homes)
 
 
 # Tool base class

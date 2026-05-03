@@ -27,7 +27,7 @@ from scipy.signal import resample
 
 from reachy_mini_conversation_app.config import config
 from reachy_mini_conversation_app.voices import resolve_voice
-from reachy_mini_conversation_app.memory import create_memory_backend
+from reachy_mini_conversation_app.memory import create_memory_backend, get_active_user
 from reachy_mini_conversation_app.location import get_location_context
 from reachy_mini_conversation_app.tools.mcp_client import MCPClientPool
 from reachy_mini_conversation_app.tools.mcp_adapter import register_mcp_tools, deregister_mcp_tools
@@ -519,12 +519,17 @@ class GeminiLiveHandler(AsyncStreamHandler):
     async def _run_live_session(self) -> None:
         """Establish and manage a single Gemini Live session."""
         profile = self.deps.active_profile or "default"
+        # Initialise active_user from disk (persists across sessions)
+        if not self.deps.active_user:
+            self.deps.active_user = get_active_user()
+        user_id = self.deps.active_user
+        logger.warning("Session starting: profile=%r user=%r", profile, user_id)
         self._session_transcript = []  # reset for new session
 
         # Load memory, location, and MCP tools concurrently
         mcp_pool = MCPClientPool.from_profile(profile, config.PROFILES_DIRECTORY)
         memory_context, location_context, mcp_specs = await asyncio.gather(
-            self._memory.load_context(profile),
+            self._memory.load_context(profile, user_id=user_id),
             asyncio.get_running_loop().run_in_executor(None, get_location_context),
             mcp_pool.connect_all(),
         )
@@ -714,9 +719,10 @@ class GeminiLiveHandler(AsyncStreamHandler):
         logger.info("Memory: session ended with %d transcript turns", len(self._session_transcript))
         if self._session_transcript:
             profile = self.deps.active_profile or "default"
+            user_id = self.deps.active_user  # may have been switched mid-session by identify_user
             try:
-                await self._memory.save_session(profile, self._session_transcript)
-                logger.info("Memory: save complete for profile %r", profile)
+                await self._memory.save_session(profile, self._session_transcript, user_id=user_id)
+                logger.info("Memory: save complete (user=%r profile=%r)", user_id, profile)
             except Exception as exc:
                 logger.warning("Memory: save failed: %s", exc)
         else:
