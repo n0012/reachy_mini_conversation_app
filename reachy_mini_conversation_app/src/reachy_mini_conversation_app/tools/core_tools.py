@@ -66,6 +66,8 @@ class ToolDependencies:
     vision_processor: Any | None = None
     head_wobbler: Any | None = None  # HeadWobbler for audio-reactive motion
     motion_duration_s: float = 1.0
+    memory_backend: Any | None = None  # MemoryBackend from memory.py
+    active_profile: str | None = None  # Current profile name for memory scoping
 
 
 # Tool base class

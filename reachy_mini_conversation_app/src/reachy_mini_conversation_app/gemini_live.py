@@ -27,6 +27,7 @@ from scipy.signal import resample
 
 from reachy_mini_conversation_app.config import config
 from reachy_mini_conversation_app.voices import resolve_voice
+from reachy_mini_conversation_app.memory import create_memory_backend
 from reachy_mini_conversation_app.prompts import get_session_voice, get_session_instructions
 from reachy_mini_conversation_app.tools.core_tools import (
     ToolDependencies,
@@ -151,6 +152,11 @@ class GeminiLiveHandler(AsyncStreamHandler):
         self._pending_assistant_transcript_chunks: list[str] = []
         self._listening_state = False
 
+        # Memory — initialised once, shared via deps so the remember tool can access it
+        self._memory = create_memory_backend()
+        self._session_transcript: list[dict] = []
+        self.deps.memory_backend = self._memory
+
     def copy(self) -> "GeminiLiveHandler":
         """Create a copy of the handler."""
         return GeminiLiveHandler(self.deps, self.gradio_mode, self.instance_path)
@@ -172,6 +178,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
         if not transcript:
             return
 
+        self._session_transcript.append({"role": role, "content": transcript})
         await self.output_queue.put(AdditionalOutputs({"role": role, "content": transcript}))
 
     async def _mark_model_response_started(self) -> None:
@@ -209,6 +216,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
 
             set_custom_profile(profile)
             self._voice_override = None
+            self.deps.active_profile = profile or "default"
             logger.info("Set custom profile to %r", profile)
 
             try:
@@ -326,9 +334,11 @@ class GeminiLiveHandler(AsyncStreamHandler):
         except Exception as e:
             logger.warning("_restart_session failed: %s", e)
 
-    def _build_live_config(self) -> types.LiveConnectConfig:
+    def _build_live_config(self, memory_context: str = "") -> types.LiveConnectConfig:
         """Build the LiveConnectConfig for a Gemini Live session."""
         instructions = get_session_instructions()
+        if memory_context:
+            instructions = f"{instructions}\n\n{memory_context}"
         voice = _resolve_gemini_voice(self._voice_override or get_session_voice())
 
         # Convert OpenAI-style tool specs to Gemini function declarations
@@ -500,7 +510,10 @@ class GeminiLiveHandler(AsyncStreamHandler):
 
     async def _run_live_session(self) -> None:
         """Establish and manage a single Gemini Live session."""
-        live_config = self._build_live_config()
+        profile = self.deps.active_profile or "default"
+        self._session_transcript = []  # reset for new session
+        memory_context = await self._memory.load_context(profile)
+        live_config = self._build_live_config(memory_context=memory_context)
 
         async with self.client.aio.live.connect(
             model=config.MODEL_NAME,
@@ -669,6 +682,13 @@ class GeminiLiveHandler(AsyncStreamHandler):
                 logger.debug("session.close() error: %s", e)
             finally:
                 self.session = None
+
+        # Fire-and-forget: save transcript to memory after session ends
+        if self._session_transcript:
+            profile = self.deps.active_profile or "default"
+            asyncio.create_task(
+                self._memory.save_session(profile, self._session_transcript)
+            )
 
         # Clear remaining items in the output queue
         while not self.output_queue.empty():
