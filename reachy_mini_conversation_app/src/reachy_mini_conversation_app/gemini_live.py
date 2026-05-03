@@ -409,14 +409,17 @@ class GeminiLiveHandler(AsyncStreamHandler):
                 is_idle_tool_call=self.is_idle_tool_call,
             )
 
-            await self.output_queue.put(
-                AdditionalOutputs(
-                    {
-                        "role": "assistant",
-                        "content": f"🛠️ Used tool {tool_name} with args {args_json_str}. Tool ID: {bg_tool.tool_id}",
-                    },
-                ),
-            )
+            # Silent tools don't surface in the chat transcript
+            _SILENT_TOOLS = {"remember", "identify_user", "do_nothing"}
+            if tool_name not in _SILENT_TOOLS:
+                await self.output_queue.put(
+                    AdditionalOutputs(
+                        {
+                            "role": "assistant",
+                            "content": f"🛠️ Used tool {tool_name} with args {args_json_str}. Tool ID: {bg_tool.tool_id}",
+                        },
+                    ),
+                )
 
             if self.is_idle_tool_call:
                 self.is_idle_tool_call = False
@@ -464,18 +467,19 @@ class GeminiLiveHandler(AsyncStreamHandler):
             )
             await self.session.send_tool_response(function_responses=[function_response])
 
-            await self.output_queue.put(
-                AdditionalOutputs(
-                    {
-                        "role": "assistant",
-                        "content": console_content,
-                        "metadata": {
-                            "title": f"🛠️ Used tool {bg_tool.tool_name}",
-                            "status": "done",
+            if bg_tool.tool_name not in {"remember", "identify_user", "do_nothing"}:
+                await self.output_queue.put(
+                    AdditionalOutputs(
+                        {
+                            "role": "assistant",
+                            "content": console_content,
+                            "metadata": {
+                                "title": f"🛠️ Used tool {bg_tool.tool_name}",
+                                "status": "done",
+                            },
                         },
-                    },
-                ),
-            )
+                    ),
+                )
 
             if bg_tool.tool_name == "camera" and self.deps.camera_worker is not None:
                 np_img = self.deps.camera_worker.get_latest_frame()
