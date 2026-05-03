@@ -290,6 +290,7 @@ async function init() {
     const pApplyVoice = document.getElementById("apply-voice");
     const pPreviewVoice = document.getElementById("preview-voice");
     const pVoiceStyle = document.getElementById("voice-style-label");
+    const editingLabel = document.getElementById("editing-label");
     const pMemory = document.getElementById("memory-check");
     const pGrounding = document.getElementById("grounding-check");
     const pMcp = document.getElementById("mcp-ta");
@@ -378,6 +379,8 @@ async function init() {
       pMemory.checked = !!data.memory;
       pGrounding.checked = !!data.grounding;
       pMcp.value = data.mcp_servers || "";
+      const shortName = selected.includes("/") ? selected.split("/").pop() : selected;
+      editingLabel.textContent = selected === DEFAULT_OPTION ? "built-in default" : shortName;
       const idx = selected.lastIndexOf("/");
       pName.value = idx >= 0 ? selected.slice(idx + 1) : "";
       setStatusMessage(pStatus, `Loaded ${selected}`);
@@ -449,6 +452,7 @@ async function init() {
       pMemory.checked = false;
       pGrounding.checked = false;
       pMcp.value = "";
+      editingLabel.textContent = "new";
       setStatusMessage(pStatus, "Fill fields and click Save.");
     });
 
