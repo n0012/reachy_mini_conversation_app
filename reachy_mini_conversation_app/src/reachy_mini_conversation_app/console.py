@@ -302,6 +302,34 @@ class LocalStream:
                 "setup_complete": self._is_setup_complete(),
             }
 
+        # GET /session/status -> sleep/wake state
+        @self._settings_app.get("/session/status")
+        def _session_status() -> JSONResponse:
+            sleeping = getattr(self.handler, "_sleeping", False)
+            profile = self.handler.deps.active_profile or config.REACHY_MINI_CUSTOM_PROFILE or "default"
+            return JSONResponse({"sleeping": sleeping, "profile": profile})
+
+        # POST /session/sleep
+        @self._settings_app.post("/session/sleep")
+        def _session_sleep() -> JSONResponse:
+            loop = self._asyncio_loop
+            if loop and hasattr(self.handler, "sleep"):
+                asyncio.run_coroutine_threadsafe(self.handler.sleep(), loop)
+            return JSONResponse({"ok": True})
+
+        # POST /session/wake
+        @self._settings_app.post("/session/wake")
+        async def _session_wake(request: Request) -> JSONResponse:
+            try:
+                body = await request.json()
+                profile = body.get("profile")
+            except Exception:
+                profile = None
+            loop = self._asyncio_loop
+            if loop and hasattr(self.handler, "wake"):
+                asyncio.run_coroutine_threadsafe(self.handler.wake(profile), loop)
+            return JSONResponse({"ok": True})
+
         # GET /config -> current configuration (no secret values)
         @self._settings_app.get("/config")
         def _get_config() -> JSONResponse:

@@ -150,7 +150,11 @@
             <p class="eyebrow">Live monitor</p>
             <h2>What Reachy sees</h2>
           </div>
-          <span id="monitor-chip" class="chip">Connecting…</span>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span id="monitor-chip" class="chip">Connecting…</span>
+            <button id="wake-btn" class="hidden" style="margin:0;padding:8px 14px;font-size:12px">▶ Wake</button>
+            <button id="sleep-btn" class="ghost hidden" style="margin:0;padding:8px 14px;font-size:12px">😴 Sleep</button>
+          </div>
         </div>
         <div class="monitor-grid">
           <div class="monitor-camera">

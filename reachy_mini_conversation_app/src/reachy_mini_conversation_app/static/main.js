@@ -597,6 +597,39 @@ async function init() {
       }
     });
 
+    // Sleep / Wake controls
+    const wakeBtn = document.getElementById("wake-btn");
+    const sleepBtn = document.getElementById("sleep-btn");
+    let currentProfile = st.setup_complete ? (await fetchWithTimeout("/session/status", {}, 3000).then(r => r.json()).catch(() => ({}))) : {};
+    currentProfile = currentProfile.profile || "yuki";
+
+    async function updateSleepState() {
+      try {
+        const resp = await fetchWithTimeout("/session/status", {}, 2000);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        currentProfile = data.profile || currentProfile;
+        const sleeping = !!data.sleeping;
+        monitorChip.textContent = sleeping ? "😴 Sleeping" : "Live";
+        monitorChip.className = sleeping ? "chip" : "chip chip-ok";
+        show(wakeBtn, sleeping);
+        show(sleepBtn, !sleeping);
+      } catch {}
+    }
+
+    wakeBtn.addEventListener("click", async () => {
+      await fetch("/session/wake", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({profile: currentProfile}) });
+      setTimeout(updateSleepState, 1000);
+    });
+    sleepBtn.addEventListener("click", async () => {
+      await fetch("/session/sleep", { method: "POST" });
+      setTimeout(updateSleepState, 500);
+    });
+
+    // Poll sleep state every 15s
+    updateSleepState();
+    setInterval(updateSleepState, 15000);
+
     // Monitor panel
     show(monitorPanel, true);
     const ACTIVITY_ROLES = new Set(["tool", "search", "memory"]);

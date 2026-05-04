@@ -164,6 +164,11 @@ class GeminiLiveHandler(AsyncStreamHandler):
 
         # Stop event for the receive loop
         self._stop_event: asyncio.Event = asyncio.Event()
+        # Sleep/wake state — when sleeping the Live WebSocket is closed to stop billing
+        self._sleeping: bool = False
+        self._wake_event: asyncio.Event = asyncio.Event()
+        self._wake_event.set()  # start awake
+        _AUTO_SLEEP_SECONDS: int = 600  # 10 minutes
         self._pending_user_transcript_chunks: list[str] = []
         self._pending_assistant_transcript_chunks: list[str] = []
         self._listening_state = False
@@ -286,6 +291,30 @@ class GeminiLiveHandler(AsyncStreamHandler):
         """Return the resolved Gemini voice currently selected for this handler."""
         return _resolve_gemini_voice(self._voice_override or get_session_voice())
 
+    async def sleep(self) -> None:
+        """Enter sleep mode — close the Live WebSocket to stop billing."""
+        if self._sleeping:
+            return
+        logger.info("Entering sleep mode")
+        self._sleeping = True
+        await self.output_queue.put(AdditionalOutputs({"role": "memory", "content": "💤 sleeping"}))
+        if self.session:
+            try:
+                await self.session.close()
+            except Exception:
+                pass
+
+    async def wake(self, profile: str | None = None) -> None:
+        """Exit sleep mode — reconnect with optional profile switch."""
+        logger.info("Waking up (profile=%r)", profile)
+        if profile and profile != self.deps.active_profile:
+            from reachy_mini_conversation_app.config import set_custom_profile
+            set_custom_profile(profile)
+            self.deps.active_profile = profile
+        self._sleeping = False
+        self._wake_event.set()
+        await self.output_queue.put(AdditionalOutputs({"role": "memory", "content": "▶ awake"}))
+
     async def start_up(self) -> None:
         """Start the handler with retries on unexpected closure."""
         # gemini-3.1-flash-live-preview is only available on generativelanguage.googleapis.com
@@ -298,26 +327,24 @@ class GeminiLiveHandler(AsyncStreamHandler):
             http_options={"api_version": "v1beta"},
         )
 
-        max_attempts = 3
-        for attempt in range(1, max_attempts + 1):
+        while not self._stop_event.is_set():
+            # Wait until awake
+            if self._sleeping:
+                logger.info("Sleep mode — waiting for wake signal")
+                self._wake_event.clear()
+                await self._wake_event.wait()
+                if self._stop_event.is_set():
+                    break
+                logger.info("Waking up — starting new session")
+
             try:
                 await self._run_live_session()
-                return
             except Exception as e:
-                logger.warning(
-                    "Gemini Live session closed unexpectedly (attempt %d/%d): %s",
-                    attempt,
-                    max_attempts,
-                    e,
-                )
-                if attempt < max_attempts:
-                    base_delay = 2 ** (attempt - 1)
-                    jitter = random.uniform(0, 0.5)
-                    delay = base_delay + jitter
-                    logger.info("Retrying in %.1f seconds...", delay)
-                    await asyncio.sleep(delay)
-                    continue
-                raise
+                if self._stop_event.is_set() or self._sleeping:
+                    pass  # expected — don't log as error
+                else:
+                    logger.warning("Gemini Live session closed unexpectedly: %s — reconnecting in 2s", e)
+                    await asyncio.sleep(2)
             finally:
                 self.session = None
                 try:
@@ -540,6 +567,17 @@ class GeminiLiveHandler(AsyncStreamHandler):
         except Exception as e:
             logger.warning("Error sending tool result to Gemini: %s", e)
 
+    async def _auto_sleep_monitor(self) -> None:
+        """Auto-sleep after 10 minutes of no user activity."""
+        _AUTO_SLEEP_SECONDS = 600
+        while self.session and not self._stop_event.is_set() and not self._sleeping:
+            await asyncio.sleep(30)  # check every 30s
+            idle = asyncio.get_event_loop().time() - self.last_activity_time
+            if idle >= _AUTO_SLEEP_SECONDS:
+                logger.info("Auto-sleep: %.0f seconds idle", idle)
+                await self.sleep()
+                return
+
     async def _video_sender_loop(self) -> None:
         """Send camera frames to Gemini Live at ~1 FPS for continuous visual context.
 
@@ -629,6 +667,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
                 # Start video sender if camera is available
                 if self.deps.camera_worker is not None:
                     video_task = asyncio.create_task(self._video_sender_loop(), name="gemini-video-sender")
+                    asyncio.create_task(self._auto_sleep_monitor(), name="gemini-auto-sleep")
 
                 # session.receive() yields responses for the current turn then completes.
                 # We loop so the session stays alive across multiple conversation turns.
