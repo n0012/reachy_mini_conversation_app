@@ -361,18 +361,17 @@ class GeminiLiveHandler(AsyncStreamHandler):
             await asyncio.wait_for(self._hold_loop_done.wait(), timeout=2.0)
         except asyncio.TimeoutError:
             pass
-        # Restart the app via launcher — clean init, normal startup sequence
-        try:
-            import urllib.request as _ur
-            _ur.urlopen(_ur.Request(
-                "http://localhost:8000/api/apps/restart-current-app",
-                data=b"", method="POST"
-            ), timeout=5)
-            logger.info("App restart requested via launcher")
-        except Exception as e:
-            logger.warning("Could not restart app: %s — falling back to wake_event", e)
-            self._hold_loop_done.clear()
-            self._wake_event.set()
+        # Restart the app via launcher — fire-and-forget (we get killed mid-request, that's fine)
+        logger.info("Requesting app restart via launcher")
+        def _do_restart():
+            try:
+                import urllib.request as _ur
+                import socket as _socket
+                req = _ur.Request("http://localhost:8000/api/apps/restart-current-app", data=b"", method="POST")
+                _ur.urlopen(req, timeout=1)
+            except (_socket.timeout, Exception):
+                pass  # expected — launcher kills us before responding
+        await asyncio.get_event_loop().run_in_executor(None, _do_restart)
         await self.output_queue.put(AdditionalOutputs({"role": "memory", "content": "▶ awake"}))
 
     async def start_up(self) -> None:
