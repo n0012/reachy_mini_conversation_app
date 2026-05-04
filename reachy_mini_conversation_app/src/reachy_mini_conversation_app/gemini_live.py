@@ -361,17 +361,18 @@ class GeminiLiveHandler(AsyncStreamHandler):
             await asyncio.wait_for(self._hold_loop_done.wait(), timeout=2.0)
         except asyncio.TimeoutError:
             pass
+        # Restart the app via launcher — clean init, normal startup sequence
         try:
-            robot = getattr(self.deps, "reachy_mini", None)
-            if robot is not None:
-                # Play wake sound only — movement manager naturally animates back to neutral
-                await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: robot.media.play_sound("wake_up.wav")
-                )
+            import urllib.request as _ur
+            _ur.urlopen(_ur.Request(
+                "http://localhost:8000/api/apps/restart-current-app",
+                data=b"", method="POST"
+            ), timeout=5)
+            logger.info("App restart requested via launcher")
         except Exception as e:
-            logger.debug("wake_up error: %s", e)
-        self._hold_loop_done.clear()  # reset for next sleep cycle
-        self._wake_event.set()
+            logger.warning("Could not restart app: %s — falling back to wake_event", e)
+            self._hold_loop_done.clear()
+            self._wake_event.set()
         await self.output_queue.put(AdditionalOutputs({"role": "memory", "content": "▶ awake"}))
 
     async def start_up(self) -> None:
