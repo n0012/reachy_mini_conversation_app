@@ -322,31 +322,21 @@ class GeminiLiveHandler(AsyncStreamHandler):
             asyncio.create_task(self._hold_sleep_pose(robot))
 
     async def _hold_sleep_pose(self, robot: object) -> None:
-        """Hold sleep pose vs breathing animation; play snore sound every 60s."""
-        import time as _time
-        last_snore = _time.monotonic()
+        """Hold sleep pose silently every 1s to counter breathing/idle animation."""
+        try:
+            from reachy_mini.kinematics.utils import SLEEP_HEAD_POSE, SLEEP_ANTENNAS_JOINT_POSITIONS
+        except Exception:
+            return
         while self._sleeping:
-            await asyncio.sleep(3)
+            await asyncio.sleep(1)
             if not self._sleeping:
                 break
             try:
-                now = _time.monotonic()
-                if now - last_snore >= 300:  # snore every 5 minutes
-                    # Full goto_sleep (includes sound + pose)
-                    await asyncio.get_event_loop().run_in_executor(None, robot.goto_sleep)
-                    last_snore = now
-                else:
-                    # Silent pose hold — move to sleep position without sound
-                    from reachy_mini.kinematics.utils import SLEEP_HEAD_POSE, SLEEP_ANTENNAS_JOINT_POSITIONS
-                    await asyncio.get_event_loop().run_in_executor(
-                        None, lambda: robot.goto_target(SLEEP_HEAD_POSE, antennas=SLEEP_ANTENNAS_JOINT_POSITIONS, duration=1)
-                    )
+                await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: robot.goto_target(SLEEP_HEAD_POSE, antennas=SLEEP_ANTENNAS_JOINT_POSITIONS, duration=0.8)
+                )
             except Exception:
-                # Fallback: just re-play goto_sleep if imports fail
-                try:
-                    await asyncio.get_event_loop().run_in_executor(None, robot.goto_sleep)
-                except Exception:
-                    break
+                break
 
     async def wake(self, profile: str | None = None) -> None:
         """Exit sleep mode — reconnect with optional profile switch."""
@@ -355,14 +345,15 @@ class GeminiLiveHandler(AsyncStreamHandler):
             from reachy_mini_conversation_app.config import set_custom_profile
             set_custom_profile(profile)
             self.deps.active_profile = profile
-        # Play native wake_up animation before reconnecting
+        self._sleeping = False
+        # Wait briefly for hold_sleep_pose loop to exit before wake_up animation
+        await asyncio.sleep(1.2)
         try:
             robot = getattr(self.deps, "reachy_mini", None)
             if robot is not None:
                 await asyncio.get_event_loop().run_in_executor(None, robot.wake_up)
         except Exception as e:
             logger.debug("wake_up error: %s", e)
-        self._sleeping = False
         self._wake_event.set()
         await self.output_queue.put(AdditionalOutputs({"role": "memory", "content": "▶ awake"}))
 
