@@ -85,7 +85,7 @@ dependency-metadata = [
 ]
 
 [project.entry-points."reachy_mini_apps"]
-reachy_mini_gemini = "reachy_mini_conversation_app.main:ReachyMiniConversationApp"
+reachy_mini_gemini_live = "reachy_mini_conversation_app.main:ReachyMiniConversationApp"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
