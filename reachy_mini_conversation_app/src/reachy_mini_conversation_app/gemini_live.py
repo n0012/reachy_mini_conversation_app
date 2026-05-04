@@ -304,18 +304,20 @@ class GeminiLiveHandler(AsyncStreamHandler):
         logger.info("Entering sleep mode")
         self._sleeping = True
         await self.output_queue.put(AdditionalOutputs({"role": "memory", "content": "💤 sleeping"}))
-        # Play native goto_sleep animation (sound + head droop + antennas)
-        try:
-            robot = getattr(self.deps, "reachy_mini", None)
-            if robot is not None:
-                await asyncio.get_event_loop().run_in_executor(None, robot.goto_sleep)
-        except Exception as e:
-            logger.debug("goto_sleep error: %s", e)
+        # Close session first — teardown resets to neutral position
         if self.session:
             try:
                 await self.session.close()
             except Exception:
                 pass
+        # Wait for neutral reset to complete, then play sleep animation on top
+        await asyncio.sleep(3.0)
+        try:
+            robot = getattr(self.deps, "reachy_mini", None)
+            if robot is not None and self._sleeping:
+                await asyncio.get_event_loop().run_in_executor(None, robot.goto_sleep)
+        except Exception as e:
+            logger.debug("goto_sleep error: %s", e)
 
     async def wake(self, profile: str | None = None) -> None:
         """Exit sleep mode — reconnect with optional profile switch."""
