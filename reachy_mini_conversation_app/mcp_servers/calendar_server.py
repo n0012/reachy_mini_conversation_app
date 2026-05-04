@@ -86,6 +86,7 @@ def _get_events(calendar_id: str, start: str, end: str) -> list:
             "end": end_dt.get("dateTime") or end_dt.get("date", ""),
             "description": e.get("description", ""),
             "location": e.get("location", ""),
+            "uid": e.get("uid", ""),
         })
     return result
 
@@ -130,8 +131,39 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Optional location",
                     },
+                    "attendees": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional list of attendee email addresses to invite",
+                    },
                 },
                 "required": ["calendar", "summary", "start_datetime", "end_datetime"],
+            },
+        ),
+        Tool(
+            name="delete_calendar_event",
+            description=(
+                "Delete a calendar event. Finds the event by summary and date, then deletes it. "
+                "Always confirm with the user before deleting. "
+                "Calendars: nick, family, sam."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "calendar": {
+                        "type": "string",
+                        "description": "Which calendar: nick, family, or sam",
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "Event title to match (case-insensitive partial match)",
+                    },
+                    "date": {
+                        "type": "string",
+                        "description": "Date of the event as YYYY-MM-DD to narrow the search",
+                    },
+                },
+                "required": ["calendar", "summary", "date"],
             },
         ),
         Tool(
@@ -188,11 +220,49 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             payload["description"] = desc
         if location:
             payload["location"] = location
+        attendees = arguments.get("attendees") or []
+        if attendees:
+            payload["attendees"] = [{"email": e} for e in attendees]
 
         result = _ha_post("/api/services/calendar/create_event", payload)
         if "error" in result:
             return [TextContent(type="text", text=f"Failed to create event: {result['error']}")]
-        return [TextContent(type="text", text=f"Created '{summary}' on {start} in {calendar} calendar.")]
+        invited = f" — invited {', '.join(attendees)}" if attendees else ""
+        return [TextContent(type="text", text=f"Created '{summary}' on {start} in {calendar} calendar{invited}.")]
+
+    if name == "delete_calendar_event":
+        calendar = (arguments.get("calendar") or "nick").strip().lower()
+        cal_id = CALENDARS.get(calendar, CALENDARS["nick"])
+        summary_search = (arguments.get("summary") or "").strip().lower()
+        date = (arguments.get("date") or "").strip()
+
+        if not date:
+            return [TextContent(type="text", text="A date is required to find the event to delete.")]
+
+        # Find matching events on that date
+        start_iso = f"{date}T00:00:00Z"
+        end_iso = f"{date}T23:59:59Z"
+        events = _get_events(cal_id, start_iso, end_iso)
+        matches = [e for e in events if summary_search in e.get("summary", "").lower()]
+
+        if not matches:
+            return [TextContent(type="text", text=f"No event matching '{summary_search}' found on {date} in {calendar} calendar.")]
+        if len(matches) > 1:
+            titles = ", ".join(f"'{e['summary']}'" for e in matches)
+            return [TextContent(type="text", text=f"Multiple matches found: {titles}. Please be more specific.")]
+
+        event = matches[0]
+        uid = event.get("uid", "")
+        if not uid:
+            return [TextContent(type="text", text="Could not find event UID for deletion.")]
+
+        result = _ha_post("/api/services/calendar/delete_event", {
+            "entity_id": cal_id,
+            "uid": uid,
+        })
+        if "error" in result:
+            return [TextContent(type="text", text=f"Failed to delete: {result['error']}")]
+        return [TextContent(type="text", text=f"Deleted '{event['summary']}' on {date} from {calendar} calendar.")]
 
     if name != "get_calendar_events":
         return [TextContent(type="text", text="Unknown tool")]
