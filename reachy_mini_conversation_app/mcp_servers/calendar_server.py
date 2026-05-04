@@ -13,6 +13,10 @@ import json
 import os
 import urllib.request
 from datetime import datetime, timedelta, timezone
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo  # type: ignore
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -20,6 +24,16 @@ from mcp.types import Tool, TextContent
 
 HA_URL = os.environ.get("HA_URL", "http://10.0.0.5:8123")
 HA_TOKEN = os.environ.get("HA_MCP_TOKEN", "")
+
+def _get_local_tz() -> ZoneInfo:
+    """Get the timezone from HA config, falling back to America/Denver."""
+    try:
+        data = _ha_get("/api/config")
+        tz_name = data.get("time_zone", "America/Denver")
+        return ZoneInfo(tz_name)
+    except Exception:
+        return ZoneInfo("America/Denver")
+
 
 CALENDARS = {
     "nick": "calendar.family_example_com",
@@ -193,12 +207,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         except ValueError:
             start_dt = datetime.now(timezone.utc)
     else:
-        # Start from midnight Mountain Time (UTC-6) so "today/tonight" events aren't missed
-        now = datetime.now(timezone.utc)
-        mt_midnight = now.replace(hour=6, minute=0, second=0, microsecond=0)
-        if now.hour < 6:
-            mt_midnight -= timedelta(days=1)
-        start_dt = mt_midnight
+        # Start from midnight local time so "today/tonight" events aren't missed
+        local_tz = _get_local_tz()
+        now_local = datetime.now(local_tz)
+        local_midnight = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        start_dt = local_midnight.astimezone(timezone.utc)
 
     end_dt = start_dt + timedelta(days=days_ahead + 1)  # +1 buffer for timezone offsets
     start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
