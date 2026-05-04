@@ -361,6 +361,9 @@ class GeminiLiveHandler(AsyncStreamHandler):
             await asyncio.wait_for(self._hold_loop_done.wait(), timeout=2.0)
         except asyncio.TimeoutError:
             pass
+        # Belt-and-suspenders: if launcher restart fails, the start_up() loop falls back
+        # to reconnecting in-process instead of wedging on _wake_event.wait() forever.
+        self._wake_event.set()
         # Restart the app via launcher — fire-and-forget (we get killed mid-request, that's fine)
         logger.info("Requesting app restart via launcher")
         def _do_restart():
@@ -864,6 +867,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
             audio_int16 = audio_to_int16(audio_frame)
             if self._check_wake_word(audio_int16):
                 logger.info("Wake word detected — waking up")
+                self._sleeping = False  # suppress further OWW triggers while wake() runs
                 asyncio.create_task(self.wake())
             return
 
