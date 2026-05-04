@@ -172,9 +172,9 @@ class GeminiLiveHandler(AsyncStreamHandler):
         # Wake word detector (lazy-loaded when first needed)
         self._oww_model: object | None = None
         self._oww_buffer: list = []
-        _OWW_CHUNK = 1280  # 80ms at 16kHz
-        _OWW_MODEL_PATH = "/venvs/apps_venv/lib/python3.12/site-packages/openwakeword/resources/models/hey_jarvis_v0.1.onnx"
-        _OWW_THRESHOLD = 0.5
+        self._OWW_CHUNK = 1280  # 80ms at 16kHz
+        self._OWW_MODEL_PATH = "/venvs/apps_venv/lib/python3.12/site-packages/openwakeword/resources/models/hey_jarvis_v0.1.onnx"
+        self._OWW_THRESHOLD = 0.5
         self._pending_user_transcript_chunks: list[str] = []
         self._pending_assistant_transcript_chunks: list[str] = []
         self._listening_state = False
@@ -819,7 +819,10 @@ class GeminiLiveHandler(AsyncStreamHandler):
         if self._sleeping:
             if audio_frame.ndim == 2:
                 audio_frame = audio_frame.T[0] if audio_frame.shape[1] > audio_frame.shape[0] else audio_frame[:, 0]
-            audio_int16 = audio_frame.astype(np.int16)
+            # Resample to 16kHz if needed (same as Gemini path)
+            if GEMINI_INPUT_SAMPLE_RATE != input_sample_rate:
+                audio_frame = resample(audio_frame, int(len(audio_frame) * GEMINI_INPUT_SAMPLE_RATE / input_sample_rate))
+            audio_int16 = audio_to_int16(audio_frame)
             if self._check_wake_word(audio_int16):
                 logger.info("Wake word detected — waking up")
                 asyncio.create_task(self.wake())
