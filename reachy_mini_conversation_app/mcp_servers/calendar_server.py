@@ -98,29 +98,6 @@ server = Server("calendar")
 async def list_tools() -> list[Tool]:
     return [
         Tool(
-            name="edit_calendar_event",
-            description=(
-                "Edit an existing calendar event by finding it, creating an updated version, "
-                "and attempting to delete the old one. Since Google Calendar deletion isn't fully "
-                "supported via Home Assistant, if delete fails the user will be prompted to remove "
-                "the old event manually. Always confirm changes with the user before editing."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "calendar": {"type": "string", "description": "Which calendar: nick, family, or sam"},
-                    "summary": {"type": "string", "description": "Current event title to find"},
-                    "date": {"type": "string", "description": "Date of the event to find (YYYY-MM-DD)"},
-                    "new_summary": {"type": "string", "description": "New title (leave blank to keep existing)"},
-                    "new_start_datetime": {"type": "string", "description": "New start (YYYY-MM-DDTHH:MM:SS) or blank to keep"},
-                    "new_end_datetime": {"type": "string", "description": "New end (YYYY-MM-DDTHH:MM:SS) or blank to keep"},
-                    "new_description": {"type": "string", "description": "New description or blank to keep"},
-                    "new_location": {"type": "string", "description": "New location or blank to keep"},
-                },
-                "required": ["calendar", "summary", "date"],
-            },
-        ),
-        Tool(
             name="create_calendar_event",
             description=(
                 "Create a new calendar event in one of the family's Home Assistant calendars. "
@@ -164,32 +141,6 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="delete_calendar_event",
-            description=(
-                "Delete a calendar event. Finds the event by summary and date, then deletes it. "
-                "Always confirm with the user before deleting. "
-                "Calendars: nick, family, sam."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "calendar": {
-                        "type": "string",
-                        "description": "Which calendar: nick, family, or sam",
-                    },
-                    "summary": {
-                        "type": "string",
-                        "description": "Event title to match (case-insensitive partial match)",
-                    },
-                    "date": {
-                        "type": "string",
-                        "description": "Date of the event as YYYY-MM-DD to narrow the search",
-                    },
-                },
-                "required": ["calendar", "summary", "date"],
-            },
-        ),
-        Tool(
             name="get_calendar_events",
             description=(
                 "Get upcoming calendar events from the family's Home Assistant calendars. "
@@ -223,60 +174,6 @@ async def list_tools() -> list[Tool]:
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    if name == "edit_calendar_event":
-        calendar = (arguments.get("calendar") or "nick").strip().lower()
-        cal_id = CALENDARS.get(calendar, CALENDARS["nick"])
-        summary_search = (arguments.get("summary") or "").strip().lower()
-        date = (arguments.get("date") or "").strip()
-        if not date:
-            return [TextContent(type="text", text="A date is required to find the event.")]
-
-        # Find the existing event
-        local_tz = _get_local_tz()
-        y, m, d = map(int, date.split("-"))
-        local_midnight = datetime(y, m, d, 0, 0, 0, tzinfo=local_tz)
-        local_end = datetime(y, m, d, 23, 59, 59, tzinfo=local_tz)
-        start_iso = local_midnight.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        end_iso = local_end.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        events = _get_events(cal_id, start_iso, end_iso)
-        matches = [e for e in events if summary_search in e.get("summary", "").lower()]
-        if not matches:
-            return [TextContent(type="text", text=f"No event matching '{summary_search}' found on {date}.")]
-        if len(matches) > 1:
-            titles = ", ".join(f"'{e['summary']}'" for e in matches)
-            return [TextContent(type="text", text=f"Multiple matches: {titles}. Be more specific.")]
-
-        old = matches[0]
-        uid = old.get("uid", "")
-        new_summary = arguments.get("new_summary") or old["summary"]
-        new_start = arguments.get("new_start_datetime") or old["start"]
-        new_end = arguments.get("new_end_datetime") or old["end"]
-        new_desc = arguments.get("new_description") if arguments.get("new_description") is not None else old.get("description", "")
-        new_loc = arguments.get("new_location") if arguments.get("new_location") is not None else old.get("location", "")
-
-        # Create updated version
-        payload: dict = {"entity_id": cal_id, "summary": new_summary}
-        if "T" in new_start:
-            payload["start_date_time"] = new_start
-            payload["end_date_time"] = new_end
-        else:
-            payload["start_date"] = new_start
-            payload["end_date"] = new_end
-        if new_desc: payload["description"] = new_desc
-        if new_loc: payload["location"] = new_loc
-        create_result = _ha_post("/api/services/calendar/create_event", payload)
-        if "error" in create_result:
-            return [TextContent(type="text", text=f"Failed to create updated event: {create_result['error']}")]
-
-        # Attempt delete of old event
-        del_result = _ha_post("/api/services/calendar/delete_event", {"entity_id": cal_id, "uid": uid})
-        if "error" in del_result and "400" in str(del_result.get("error", "")):
-            return [TextContent(type="text", text=
-                f"Created updated '{new_summary}'. "
-                f"The old '{old['summary']}' on {date} couldn't be removed automatically — "
-                f"please delete it at calendar.google.com.")]
-        return [TextContent(type="text", text=f"Updated '{old['summary']}' → '{new_summary}' on {date}.")]
-
     if name == "create_calendar_event":
         calendar = (arguments.get("calendar") or "nick").strip().lower()
         cal_id = CALENDARS.get(calendar, CALENDARS["nick"])
@@ -315,53 +212,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=f"Failed to create event: {result['error']}")]
         invited = f" — invited {', '.join(attendees)}" if attendees else ""
         return [TextContent(type="text", text=f"Created '{summary}' on {start} in {calendar} calendar{invited}.")]
-
-    if name == "delete_calendar_event":
-        calendar = (arguments.get("calendar") or "nick").strip().lower()
-        cal_id = CALENDARS.get(calendar, CALENDARS["nick"])
-        summary_search = (arguments.get("summary") or "").strip().lower()
-        date = (arguments.get("date") or "").strip()
-
-        if not date:
-            return [TextContent(type="text", text="A date is required to find the event to delete.")]
-
-        # Find matching events — use local midnight to cover full local day
-        local_tz = _get_local_tz()
-        from datetime import date as date_cls
-        y, m, d = map(int, date.split("-"))
-        local_midnight = datetime(y, m, d, 0, 0, 0, tzinfo=local_tz)
-        local_end = datetime(y, m, d, 23, 59, 59, tzinfo=local_tz)
-        start_iso = local_midnight.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        end_iso = local_end.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        events = _get_events(cal_id, start_iso, end_iso)
-        matches = [e for e in events if summary_search in e.get("summary", "").lower()]
-
-        if not matches:
-            return [TextContent(type="text", text=f"No event matching '{summary_search}' found on {date} in {calendar} calendar.")]
-        if len(matches) > 1:
-            titles = ", ".join(f"'{e['summary']}'" for e in matches)
-            return [TextContent(type="text", text=f"Multiple matches found: {titles}. Please be more specific.")]
-
-        event = matches[0]
-        uid = event.get("uid", "")
-        if not uid:
-            return [TextContent(type="text", text="Could not find event UID for deletion.")]
-
-        # NOTE: delete_event is not yet exposed as a service in HA (as of 2024).
-        # The code exists in HA internals but hasn't been released as a callable service.
-        # Track: https://community.home-assistant.io/t/572499
-        # This call will start working automatically once HA exposes the service.
-        result = _ha_post("/api/services/calendar/delete_event", {
-            "entity_id": cal_id,
-            "uid": uid,
-        })
-        if "error" in result and "400" in str(result.get("error", "")):
-            return [TextContent(type="text", text=
-                f"Found '{event['summary']}' on {date} but Home Assistant doesn't yet support calendar deletion. "
-                f"Delete it directly at calendar.google.com or in the Google Calendar app.")]
-        if "error" in result:
-            return [TextContent(type="text", text=f"Failed to delete: {result['error']}")]
-        return [TextContent(type="text", text=f"Deleted '{event['summary']}' on {date} from {calendar} calendar.")]
 
     if name != "get_calendar_events":
         return [TextContent(type="text", text="Unknown tool")]
