@@ -195,7 +195,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     else:
         start_dt = datetime.now(timezone.utc)
 
-    end_dt = start_dt + timedelta(days=days_ahead)
+    end_dt = start_dt + timedelta(days=days_ahead + 1)  # +1 buffer for timezone offsets
     start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     end_iso = end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
