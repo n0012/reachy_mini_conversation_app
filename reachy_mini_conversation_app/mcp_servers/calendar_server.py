@@ -226,6 +226,15 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         result = _ha_post("/api/services/calendar/create_event", payload)
         if "error" in result:
+            # HA may not support attendees — retry without them
+            if attendees and "400" in str(result.get("error", "")):
+                payload.pop("attendees", None)
+                result = _ha_post("/api/services/calendar/create_event", payload)
+                if "error" in result:
+                    return [TextContent(type="text", text=f"Failed to create event: {result['error']}")]
+                return [TextContent(type="text", text=
+                    f"Created '{summary}' on {start} in {calendar} calendar. "
+                    f"Note: invite emails ({', '.join(attendees)}) could not be added automatically — send invites manually.")]
             return [TextContent(type="text", text=f"Failed to create event: {result['error']}")]
         invited = f" — invited {', '.join(attendees)}" if attendees else ""
         return [TextContent(type="text", text=f"Created '{summary}' on {start} in {calendar} calendar{invited}.")]
@@ -239,9 +248,14 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         if not date:
             return [TextContent(type="text", text="A date is required to find the event to delete.")]
 
-        # Find matching events on that date
-        start_iso = f"{date}T00:00:00Z"
-        end_iso = f"{date}T23:59:59Z"
+        # Find matching events — use local midnight to cover full local day
+        local_tz = _get_local_tz()
+        from datetime import date as date_cls
+        y, m, d = map(int, date.split("-"))
+        local_midnight = datetime(y, m, d, 0, 0, 0, tzinfo=local_tz)
+        local_end = datetime(y, m, d, 23, 59, 59, tzinfo=local_tz)
+        start_iso = local_midnight.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        end_iso = local_end.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         events = _get_events(cal_id, start_iso, end_iso)
         matches = [e for e in events if summary_search in e.get("summary", "").lower()]
 
