@@ -322,9 +322,9 @@ class GeminiLiveHandler(AsyncStreamHandler):
             asyncio.create_task(self._hold_sleep_pose(robot))
 
     async def _hold_sleep_pose(self, robot: object) -> None:
-        """Re-apply sleep pose every 10s to counter breathing/idle animation."""
+        """Re-apply sleep pose every 3s to counter breathing/idle animation."""
         while self._sleeping:
-            await asyncio.sleep(10)
+            await asyncio.sleep(3)
             if not self._sleeping:
                 break
             try:
