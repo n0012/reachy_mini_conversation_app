@@ -84,6 +84,7 @@ class MCPServerConnection:
         params = StdioServerParameters(
             command=self._cfg.command[0],
             args=self._cfg.command[1:],
+            env=os.environ.copy(),  # explicitly pass env so tokens are available in subprocess
         )
         self._cm = stdio_client(params)
         read, write = await self._cm.__aenter__()
