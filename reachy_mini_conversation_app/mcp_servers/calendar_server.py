@@ -43,6 +43,22 @@ def _ha_get(path: str) -> list:
         return []
 
 
+def _ha_post(path: str, body: dict) -> dict:
+    url = f"{HA_URL}{path}"
+    data = json.dumps(body).encode()
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            body = r.read()
+            return json.loads(body) if body else {}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def _get_events(calendar_id: str, start: str, end: str) -> list:
     path = f"/api/calendars/{calendar_id}?start={start}&end={end}"
     events = _ha_get(path)
@@ -66,6 +82,44 @@ server = Server("calendar")
 @server.list_tools()
 async def list_tools() -> list[Tool]:
     return [
+        Tool(
+            name="create_calendar_event",
+            description=(
+                "Create a new calendar event in one of the family's Home Assistant calendars. "
+                "Always confirm the details with the user before creating. "
+                "Calendars: nick, family, sam."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "calendar": {
+                        "type": "string",
+                        "description": "Which calendar: nick, family, or sam",
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "Event title",
+                    },
+                    "start_datetime": {
+                        "type": "string",
+                        "description": "Start date/time as YYYY-MM-DDTHH:MM:SS or YYYY-MM-DD for all-day",
+                    },
+                    "end_datetime": {
+                        "type": "string",
+                        "description": "End date/time as YYYY-MM-DDTHH:MM:SS or YYYY-MM-DD for all-day",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Optional event description",
+                    },
+                    "location": {
+                        "type": "string",
+                        "description": "Optional location",
+                    },
+                },
+                "required": ["calendar", "summary", "start_datetime", "end_datetime"],
+            },
+        ),
         Tool(
             name="get_calendar_events",
             description=(
@@ -100,6 +154,32 @@ async def list_tools() -> list[Tool]:
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+    if name == "create_calendar_event":
+        calendar = (arguments.get("calendar") or "nick").strip().lower()
+        cal_id = CALENDARS.get(calendar, CALENDARS["nick"])
+        summary = arguments.get("summary", "")
+        start = arguments.get("start_datetime", "")
+        end = arguments.get("end_datetime", "")
+        desc = arguments.get("description", "")
+        location = arguments.get("location", "")
+
+        payload: dict = {"entity_id": cal_id, "summary": summary}
+        if "T" in start:
+            payload["start_date_time"] = start
+            payload["end_date_time"] = end
+        else:
+            payload["start_date"] = start
+            payload["end_date"] = end
+        if desc:
+            payload["description"] = desc
+        if location:
+            payload["location"] = location
+
+        result = _ha_post("/api/services/calendar/create_event", payload)
+        if "error" in result:
+            return [TextContent(type="text", text=f"Failed to create event: {result['error']}")]
+        return [TextContent(type="text", text=f"Created '{summary}' on {start} in {calendar} calendar.")]
+
     if name != "get_calendar_events":
         return [TextContent(type="text", text="Unknown tool")]
 
