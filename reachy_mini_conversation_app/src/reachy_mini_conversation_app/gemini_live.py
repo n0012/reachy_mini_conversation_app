@@ -322,15 +322,31 @@ class GeminiLiveHandler(AsyncStreamHandler):
             asyncio.create_task(self._hold_sleep_pose(robot))
 
     async def _hold_sleep_pose(self, robot: object) -> None:
-        """Re-apply sleep pose every 3s to counter breathing/idle animation."""
+        """Hold sleep pose vs breathing animation; play snore sound every 60s."""
+        import time as _time
+        last_snore = _time.monotonic()
         while self._sleeping:
             await asyncio.sleep(3)
             if not self._sleeping:
                 break
             try:
-                await asyncio.get_event_loop().run_in_executor(None, robot.goto_sleep)
+                now = _time.monotonic()
+                if now - last_snore >= 60:
+                    # Full goto_sleep (includes sound + pose)
+                    await asyncio.get_event_loop().run_in_executor(None, robot.goto_sleep)
+                    last_snore = now
+                else:
+                    # Silent pose hold — move to sleep position without sound
+                    from reachy_mini.kinematics.utils import SLEEP_HEAD_POSE, SLEEP_ANTENNAS_JOINT_POSITIONS
+                    await asyncio.get_event_loop().run_in_executor(
+                        None, lambda: robot.goto_target(SLEEP_HEAD_POSE, antennas=SLEEP_ANTENNAS_JOINT_POSITIONS, duration=1)
+                    )
             except Exception:
-                break
+                # Fallback: just re-play goto_sleep if imports fail
+                try:
+                    await asyncio.get_event_loop().run_in_executor(None, robot.goto_sleep)
+                except Exception:
+                    break
 
     async def wake(self, profile: str | None = None) -> None:
         """Exit sleep mode — reconnect with optional profile switch."""
