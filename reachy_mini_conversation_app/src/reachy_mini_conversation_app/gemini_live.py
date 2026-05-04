@@ -315,7 +315,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
         robot = getattr(self.deps, "reachy_mini", None)
         if robot is not None and self._sleeping:
             try:
-                from reachy_mini.kinematics.utils import SLEEP_HEAD_POSE, SLEEP_ANTENNAS_JOINT_POSITIONS
+                from reachy_mini.reachy_mini import SLEEP_HEAD_POSE, SLEEP_ANTENNAS_JOINT_POSITIONS
                 await asyncio.get_event_loop().run_in_executor(
                     None, lambda: robot.goto_target(SLEEP_HEAD_POSE, antennas=SLEEP_ANTENNAS_JOINT_POSITIONS, duration=2)
                 )
@@ -327,7 +327,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
     async def _hold_sleep_pose(self, robot: object) -> None:
         """Hold sleep pose silently every 1s to counter breathing/idle animation."""
         try:
-            from reachy_mini.kinematics.utils import SLEEP_HEAD_POSE, SLEEP_ANTENNAS_JOINT_POSITIONS
+            from reachy_mini.reachy_mini import SLEEP_HEAD_POSE, SLEEP_ANTENNAS_JOINT_POSITIONS
         except Exception:
             return
         while self._sleeping:
