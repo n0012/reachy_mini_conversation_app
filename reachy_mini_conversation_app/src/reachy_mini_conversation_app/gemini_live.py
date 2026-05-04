@@ -169,6 +169,12 @@ class GeminiLiveHandler(AsyncStreamHandler):
         self._wake_event: asyncio.Event = asyncio.Event()
         self._wake_event.set()  # start awake
         _AUTO_SLEEP_SECONDS: int = 600  # 10 minutes
+        # Wake word detector (lazy-loaded when first needed)
+        self._oww_model: object | None = None
+        self._oww_buffer: list = []
+        _OWW_CHUNK = 1280  # 80ms at 16kHz
+        _OWW_MODEL_PATH = "/venvs/apps_venv/lib/python3.12/site-packages/openwakeword/resources/models/hey_jarvis_v0.1.onnx"
+        _OWW_THRESHOLD = 0.5
         self._pending_user_transcript_chunks: list[str] = []
         self._pending_assistant_transcript_chunks: list[str] = []
         self._listening_state = False
@@ -773,12 +779,40 @@ class GeminiLiveHandler(AsyncStreamHandler):
                         pass
                 await self.tool_manager.shutdown()
 
+    def _check_wake_word(self, audio_int16: NDArray[np.int16]) -> bool:
+        """Feed audio to OpenWakeWord; return True if wake word detected."""
+        try:
+            if self._oww_model is None:
+                from openwakeword.model import Model as _OWWModel
+                self._oww_model = _OWWModel(wakeword_model_paths=[self._OWW_MODEL_PATH])
+            self._oww_buffer.extend(audio_int16.tolist())
+            while len(self._oww_buffer) >= self._OWW_CHUNK:
+                chunk = np.array(self._oww_buffer[:self._OWW_CHUNK], dtype=np.int16)
+                self._oww_buffer = self._oww_buffer[self._OWW_CHUNK:]
+                scores = self._oww_model.predict(chunk)
+                if any(v >= self._OWW_THRESHOLD for v in scores.values()):
+                    self._oww_model.reset()
+                    return True
+        except Exception as e:
+            logger.debug("OWW error: %s", e)
+        return False
+
     async def receive(self, frame: Tuple[int, NDArray[np.int16]]) -> None:
         """Receive audio frame from microphone and send to Gemini."""
-        if not self.session:
+        input_sample_rate, audio_frame = frame
+
+        # When sleeping, route audio to wake word detector instead of Gemini
+        if self._sleeping:
+            if audio_frame.ndim == 2:
+                audio_frame = audio_frame.T[0] if audio_frame.shape[1] > audio_frame.shape[0] else audio_frame[:, 0]
+            audio_int16 = audio_frame.astype(np.int16)
+            if self._check_wake_word(audio_int16):
+                logger.info("Wake word detected — waking up")
+                asyncio.create_task(self.wake())
             return
 
-        input_sample_rate, audio_frame = frame
+        if not self.session:
+            return
 
         # Reshape if needed
         if audio_frame.ndim == 2:
