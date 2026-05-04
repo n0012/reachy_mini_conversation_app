@@ -310,15 +310,18 @@ class GeminiLiveHandler(AsyncStreamHandler):
                 await self.session.close()
             except Exception:
                 pass
-        # Wait for neutral reset to complete, then play sleep animation on top
+        # Wait for neutral reset to complete, then silently move to sleep position (no sound)
         await asyncio.sleep(3.0)
         robot = getattr(self.deps, "reachy_mini", None)
         if robot is not None and self._sleeping:
             try:
-                await asyncio.get_event_loop().run_in_executor(None, robot.goto_sleep)
+                from reachy_mini.kinematics.utils import SLEEP_HEAD_POSE, SLEEP_ANTENNAS_JOINT_POSITIONS
+                await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: robot.goto_target(SLEEP_HEAD_POSE, antennas=SLEEP_ANTENNAS_JOINT_POSITIONS, duration=2)
+                )
             except Exception as e:
-                logger.debug("goto_sleep error: %s", e)
-            # Hold sleep pose — movement manager breathing fights it, re-apply every 10s
+                logger.debug("sleep pose error: %s", e)
+            # Hold sleep pose — movement manager breathing fights it
             asyncio.create_task(self._hold_sleep_pose(robot))
 
     async def _hold_sleep_pose(self, robot: object) -> None:
