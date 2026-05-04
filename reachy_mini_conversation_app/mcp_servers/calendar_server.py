@@ -274,6 +274,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             "entity_id": cal_id,
             "uid": uid,
         })
+        if "error" in result and "400" in str(result.get("error", "")):
+            # Google Calendar integration doesn't support deletion via HA service
+            return [TextContent(type="text", text=
+                f"Found '{event['summary']}' on {date} but Google Calendar doesn't support deletion through Home Assistant. "
+                f"Delete it directly at calendar.google.com or in the Google Calendar app.")]
         if "error" in result:
             return [TextContent(type="text", text=f"Failed to delete: {result['error']}")]
         return [TextContent(type="text", text=f"Deleted '{event['summary']}' on {date} from {calendar} calendar.")]
