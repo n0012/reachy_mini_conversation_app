@@ -193,7 +193,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         except ValueError:
             start_dt = datetime.now(timezone.utc)
     else:
-        start_dt = datetime.now(timezone.utc)
+        # Start from midnight Mountain Time (UTC-6) so "today/tonight" events aren't missed
+        now = datetime.now(timezone.utc)
+        mt_midnight = now.replace(hour=6, minute=0, second=0, microsecond=0)
+        if now.hour < 6:
+            mt_midnight -= timedelta(days=1)
+        start_dt = mt_midnight
 
     end_dt = start_dt + timedelta(days=days_ahead + 1)  # +1 buffer for timezone offsets
     start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
