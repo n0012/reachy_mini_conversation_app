@@ -304,6 +304,13 @@ class GeminiLiveHandler(AsyncStreamHandler):
         logger.info("Entering sleep mode")
         self._sleeping = True
         await self.output_queue.put(AdditionalOutputs({"role": "memory", "content": "💤 sleeping"}))
+        # Play native goto_sleep animation (sound + head droop + antennas)
+        try:
+            robot = getattr(self.deps, "reachy_mini", None)
+            if robot is not None:
+                await asyncio.get_event_loop().run_in_executor(None, robot.goto_sleep)
+        except Exception as e:
+            logger.debug("goto_sleep error: %s", e)
         if self.session:
             try:
                 await self.session.close()
@@ -317,6 +324,13 @@ class GeminiLiveHandler(AsyncStreamHandler):
             from reachy_mini_conversation_app.config import set_custom_profile
             set_custom_profile(profile)
             self.deps.active_profile = profile
+        # Play native wake_up animation before reconnecting
+        try:
+            robot = getattr(self.deps, "reachy_mini", None)
+            if robot is not None:
+                await asyncio.get_event_loop().run_in_executor(None, robot.wake_up)
+        except Exception as e:
+            logger.debug("wake_up error: %s", e)
         self._sleeping = False
         self._wake_event.set()
         await self.output_queue.put(AdditionalOutputs({"role": "memory", "content": "▶ awake"}))
