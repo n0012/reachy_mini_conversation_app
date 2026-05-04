@@ -168,6 +168,8 @@ class GeminiLiveHandler(AsyncStreamHandler):
         self._sleeping: bool = False
         self._wake_event: asyncio.Event = asyncio.Event()
         self._wake_event.set()  # start awake
+        self._hold_loop_done: asyncio.Event = asyncio.Event()
+        self._hold_loop_done.set()  # not holding initially
         _AUTO_SLEEP_SECONDS: int = 600  # 10 minutes
         # Wake word detector (lazy-loaded when first needed)
         self._oww_model: object | None = None
@@ -322,6 +324,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
             except Exception as e:
                 logger.debug("sleep pose error: %s", e)
             # Hold sleep pose — movement manager breathing fights it
+            self._hold_loop_done.clear()
             asyncio.create_task(self._hold_sleep_pose(robot))
 
     async def _hold_sleep_pose(self, robot: object) -> None:
@@ -329,17 +332,21 @@ class GeminiLiveHandler(AsyncStreamHandler):
         try:
             from reachy_mini.reachy_mini import SLEEP_HEAD_POSE, SLEEP_ANTENNAS_JOINT_POSITIONS
         except Exception:
+            self._hold_loop_done.set()
             return
-        while self._sleeping:
-            await asyncio.sleep(1)
-            if not self._sleeping:
-                break
-            try:
-                await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: robot.goto_target(SLEEP_HEAD_POSE, antennas=SLEEP_ANTENNAS_JOINT_POSITIONS, duration=0.8)
-                )
-            except Exception:
-                break
+        try:
+            while self._sleeping:
+                await asyncio.sleep(1)
+                if not self._sleeping:
+                    break
+                try:
+                    await asyncio.get_event_loop().run_in_executor(
+                        None, lambda: robot.goto_target(SLEEP_HEAD_POSE, antennas=SLEEP_ANTENNAS_JOINT_POSITIONS, duration=0.8)
+                    )
+                except Exception:
+                    break
+        finally:
+            self._hold_loop_done.set()
 
     async def wake(self, profile: str | None = None) -> None:
         """Exit sleep mode — reconnect with optional profile switch."""
@@ -349,14 +356,18 @@ class GeminiLiveHandler(AsyncStreamHandler):
             set_custom_profile(profile)
             self.deps.active_profile = profile
         self._sleeping = False
-        # Wait briefly for hold_sleep_pose loop to exit before wake_up animation
-        await asyncio.sleep(1.2)
+        # Wait for hold_sleep_pose loop to fully exit (it sets _hold_loop_done when done)
+        try:
+            await asyncio.wait_for(self._hold_loop_done.wait(), timeout=2.0)
+        except asyncio.TimeoutError:
+            pass
         try:
             robot = getattr(self.deps, "reachy_mini", None)
             if robot is not None:
                 await asyncio.get_event_loop().run_in_executor(None, robot.wake_up)
         except Exception as e:
             logger.debug("wake_up error: %s", e)
+        self._hold_loop_done.clear()  # reset for next sleep cycle
         self._wake_event.set()
         await self.output_queue.put(AdditionalOutputs({"role": "memory", "content": "▶ awake"}))
 
