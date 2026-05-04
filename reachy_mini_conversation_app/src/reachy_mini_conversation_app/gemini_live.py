@@ -364,7 +364,10 @@ class GeminiLiveHandler(AsyncStreamHandler):
         try:
             robot = getattr(self.deps, "reachy_mini", None)
             if robot is not None:
-                await asyncio.get_event_loop().run_in_executor(None, robot.wake_up)
+                # Play wake sound only — movement manager naturally animates back to neutral
+                await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: robot.media.play_sound("wake_up.wav")
+                )
         except Exception as e:
             logger.debug("wake_up error: %s", e)
         self._hold_loop_done.clear()  # reset for next sleep cycle
