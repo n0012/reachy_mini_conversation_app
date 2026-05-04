@@ -270,14 +270,17 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         if not uid:
             return [TextContent(type="text", text="Could not find event UID for deletion.")]
 
+        # NOTE: delete_event is not yet exposed as a service in HA (as of 2024).
+        # The code exists in HA internals but hasn't been released as a callable service.
+        # Track: https://community.home-assistant.io/t/572499
+        # This call will start working automatically once HA exposes the service.
         result = _ha_post("/api/services/calendar/delete_event", {
             "entity_id": cal_id,
             "uid": uid,
         })
         if "error" in result and "400" in str(result.get("error", "")):
-            # Google Calendar integration doesn't support deletion via HA service
             return [TextContent(type="text", text=
-                f"Found '{event['summary']}' on {date} but Google Calendar doesn't support deletion through Home Assistant. "
+                f"Found '{event['summary']}' on {date} but Home Assistant doesn't yet support calendar deletion. "
                 f"Delete it directly at calendar.google.com or in the Google Calendar app.")]
         if "error" in result:
             return [TextContent(type="text", text=f"Failed to delete: {result['error']}")]
