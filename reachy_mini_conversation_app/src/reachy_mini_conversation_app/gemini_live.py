@@ -331,7 +331,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
                 break
             try:
                 now = _time.monotonic()
-                if now - last_snore >= 60:
+                if now - last_snore >= 300:  # snore every 5 minutes
                     # Full goto_sleep (includes sound + pose)
                     await asyncio.get_event_loop().run_in_executor(None, robot.goto_sleep)
                     last_snore = now
