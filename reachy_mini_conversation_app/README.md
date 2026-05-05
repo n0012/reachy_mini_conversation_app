@@ -1,5 +1,5 @@
 ---
-title: Reachy Mini Conversation App — Gemini Edition
+title: Reachy Mini Conversation App Gemini Edition
 emoji: 🎤
 colorFrom: blue
 colorTo: purple
