@@ -1,0 +1,20 @@
+[
+  {
+    "name": "weather",
+    "transport": "stdio",
+    "command": ["/venvs/apps_venv/bin/python3", "/home/pollen/dev/reachy_mini_conversation_app/reachy_mini_conversation_app/mcp_servers/weather_server.py"]
+  },
+  {
+    "name": "home_assistant",
+    "transport": "streamablehttp",
+    "url": "http://homeassistant.local:8123/api/mcp",
+    "headers": {
+      "Authorization": "Bearer ${HA_MCP_TOKEN}"
+    }
+  },
+  {
+    "name": "calendar",
+    "transport": "stdio",
+    "command": ["/venvs/apps_venv/bin/python3", "/home/pollen/dev/reachy_mini_conversation_app/reachy_mini_conversation_app/mcp_servers/calendar_server.py"]
+  }
+]
