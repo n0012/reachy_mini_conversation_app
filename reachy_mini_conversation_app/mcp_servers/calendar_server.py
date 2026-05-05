@@ -22,23 +22,25 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
-HA_URL = os.environ.get("HA_URL", "http://10.0.0.5:8123")
+HA_URL = os.environ.get("HA_URL", "http://homeassistant.local:8123")
 HA_TOKEN = os.environ.get("HA_MCP_TOKEN", "")
 
 def _get_local_tz() -> ZoneInfo:
-    """Get the timezone from HA config, falling back to America/Denver."""
+    """Get the timezone from HA config, falling back to UTC."""
     try:
         data = _ha_get("/api/config")
-        tz_name = data.get("time_zone", "America/Denver")
+        tz_name = data.get("time_zone", "UTC")
         return ZoneInfo(tz_name)
     except Exception:
-        return ZoneInfo("America/Denver")
+        return ZoneInfo("UTC")
 
 
+# Configure your calendar entity IDs from Home Assistant.
+# Find them at: Settings → Devices & Services → Google Calendar
+# Each key is a short name you use in conversation ("check my work calendar")
 CALENDARS = {
-    "nick": "calendar.family_example_com",
+    "personal": "calendar.personal",    # replace with your HA calendar entity IDs
     "family": "calendar.family",
-    "sam": "calendar.partner_example_com",
     "birthdays": "calendar.birthdays",
     "holidays": "calendar.holidays_in_united_states",
 }
@@ -100,16 +102,16 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="create_calendar_event",
             description=(
-                "Create a new calendar event in one of the family's Home Assistant calendars. "
+                "Create a new calendar event in a Home Assistant calendar. "
                 "Always confirm the details with the user before creating. "
-                "Calendars: nick, family, sam."
+                "Use the calendar names configured in CALENDARS (e.g. personal, family)."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "calendar": {
                         "type": "string",
-                        "description": "Which calendar: nick, family, or sam",
+                        "description": "Which calendar to use (e.g. personal, family)",
                     },
                     "summary": {
                         "type": "string",
@@ -143,10 +145,9 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="get_calendar_events",
             description=(
-                "Get upcoming calendar events from the family's Home Assistant calendars. "
+                "Get upcoming calendar events from Home Assistant calendars. "
                 "Use this for any calendar or schedule question. "
-                "Calendars: nick (Nick's personal), family (shared family), "
-                "sam (Sam's personal), birthdays, holidays. "
+                "Available calendars are configured in CALENDARS (e.g. personal, family, birthdays, holidays). "
                 "Leave calendar blank to query all calendars."
             ),
             inputSchema={
@@ -154,7 +155,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "calendar": {
                         "type": "string",
-                        "description": "Which calendar: nick, family, sam, birthdays, holidays, or 'all'",
+                        "description": "Which calendar to query, or 'all' for every calendar",
                         "default": "all",
                     },
                     "days_ahead": {
@@ -175,8 +176,9 @@ async def list_tools() -> list[Tool]:
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     if name == "create_calendar_event":
-        calendar = (arguments.get("calendar") or "nick").strip().lower()
-        cal_id = CALENDARS.get(calendar, CALENDARS["nick"])
+        default_cal = next(iter(CALENDARS))  # first calendar in CALENDARS is the default
+        calendar = (arguments.get("calendar") or default_cal).strip().lower()
+        cal_id = CALENDARS.get(calendar, CALENDARS[default_cal])
         summary = arguments.get("summary", "")
         start = arguments.get("start_datetime", "")
         end = arguments.get("end_datetime", "")

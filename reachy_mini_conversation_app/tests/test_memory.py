@@ -112,7 +112,7 @@ def test_create_memory_backend_returns_file_backend_without_gcp(
 def test_create_memory_backend_returns_vertex_when_gcp_set(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("GCP_PROJECT_ID", "losiern-vibe")
+    monkeypatch.setenv("GCP_PROJECT_ID", "test-project")
     monkeypatch.setenv("VERTEX_REASONING_ENGINE_ID", "12345")
     monkeypatch.setenv("GCP_LOCATION", "us-central1")
     backend = create_memory_backend()

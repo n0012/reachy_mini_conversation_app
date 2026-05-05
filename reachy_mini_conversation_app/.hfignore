@@ -6,6 +6,10 @@ profiles/yuki/
 # OWW training artifacts
 oww_training/
 
+# Operational docs with personal project IDs and account details
+docs/GCP_ORG_POLICY.md
+docs/MEMORY_ADMIN.md
+
 # Local dev / build artifacts
 __pycache__/
 *.pyc
