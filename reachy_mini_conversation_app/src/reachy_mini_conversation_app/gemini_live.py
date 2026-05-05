@@ -868,6 +868,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
 
         # When sleeping, route audio to wake word detector instead of Gemini
         if self._sleeping:
+            logger.warning("OWW receive called — sleeping, frame shape=%s sr=%d", audio_frame.shape, input_sample_rate)
             if audio_frame.ndim == 2:
                 audio_frame = audio_frame.T[0] if audio_frame.shape[1] > audio_frame.shape[0] else audio_frame[:, 0]
             # Resample to 16kHz if needed (same as Gemini path)
