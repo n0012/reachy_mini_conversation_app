@@ -16,6 +16,10 @@ tags:
 
 # Reachy Mini — Gemini Live Edition
 
+**This app runs directly on your Reachy Mini robot.** Install it from the Pollen launcher on your robot's dashboard, or follow the [quick start](#quick-start) below. This HuggingFace Space is the distribution point — the code executes on the robot, not in the cloud.
+
+![Reachy Mini Dance](docs/assets/reachy_mini_dance.gif)
+
 A fork of the [Pollen Robotics conversation app](https://huggingface.co/spaces/pollen-robotics/reachy_mini_conversation_app) rebuilt around the Gemini Live API with persistent per-user memory, profile-scoped MCP tools, and an offline wake word — all managed from a headless browser UI on the robot.
 
 ---
