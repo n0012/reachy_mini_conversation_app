@@ -286,7 +286,7 @@ Uses [OpenWakeWord](https://github.com/dscripka/openWakeWord) for offline detect
 
 ### Training a custom "Hey Reachy" wake word
 
-A Colab training notebook is included: [`oww_training/hey_reachy_training.ipynb`](oww_training/hey_reachy_training.ipynb)
+A Colab training notebook is included: [`hey_reachy_training.ipynb`](https://github.com/n0012/reachy_mini_conversation_app/blob/main/reachy_mini_conversation_app/oww_training/hey_reachy_training.ipynb)
 
 See **[docs/wake_word_training.md](docs/wake_word_training.md)** for the full guide, including:
 - A100 GPU setup on Google Colab Enterprise
