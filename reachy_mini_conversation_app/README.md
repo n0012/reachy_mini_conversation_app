@@ -450,6 +450,7 @@ Applied in `gemini_live.py:_handle_tool_result()` to control how the model annou
 | [google-gemini/cookbook: Live API tools](https://github.com/google-gemini/cookbook/blob/main/quickstarts/Get_started_LiveAPI_tools.ipynb) | `google_search` + `function_declarations` format |
 | [ai.google.dev: Live API tools](https://ai.google.dev/gemini-api/docs/live-api/tools) | Tool support matrix, scheduling hints |
 | [music-assistant/voice-support](https://github.com/music-assistant/voice-support) | Music Assistant `HassMediaSearchAndPlay` interface |
+| [Home Assistant MCP Server](https://developers.home-assistant.io/blog/2025/04/09/mcp-server/) | HA native MCP integration — streamablehttp transport, entity control |
 
 ---
 
