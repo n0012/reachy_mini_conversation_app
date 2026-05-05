@@ -98,6 +98,7 @@ where = ["src"]
 reachy_mini_conversation_app = [
   "images/*",
   "static/*",
+  "models/*.onnx",
   ".env.example",
   "demos/**/*.txt",
   "prompts_library/*.txt",

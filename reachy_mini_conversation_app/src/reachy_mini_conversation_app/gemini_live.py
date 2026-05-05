@@ -175,7 +175,11 @@ class GeminiLiveHandler(AsyncStreamHandler):
         self._oww_model: object | None = None
         self._oww_buffer: list = []
         self._OWW_CHUNK = 1280  # 80ms at 16kHz
-        self._OWW_MODEL_PATH = "/venvs/apps_venv/lib/python3.12/site-packages/openwakeword/resources/models/hey_jarvis_v0.1.onnx"
+        # Prefer the bundled hey_reachy model; fall back to system hey_jarvis
+        import pathlib as _pl
+        _bundled = _pl.Path(__file__).parent / "models" / "hey_reachy.onnx"
+        self._OWW_MODEL_PATH = str(_bundled) if _bundled.exists() else \
+            "/venvs/apps_venv/lib/python3.12/site-packages/openwakeword/resources/models/hey_jarvis_v0.1.onnx"
         self._OWW_THRESHOLD = 0.5
         self._pending_user_transcript_chunks: list[str] = []
         self._pending_assistant_transcript_chunks: list[str] = []
