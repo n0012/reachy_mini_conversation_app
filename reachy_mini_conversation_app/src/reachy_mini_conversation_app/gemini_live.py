@@ -851,10 +851,8 @@ class GeminiLiveHandler(AsyncStreamHandler):
                 self._oww_buffer = self._oww_buffer[self._OWW_CHUNK:]
                 scores = self._oww_model.predict(chunk)
                 max_score = max(scores.values()) if scores else 0.0
-                if max_score > 0.1:  # log anything above noise floor
-                    logger.warning("OWW score: %.3f (threshold=%.1f) model=%s",
-                                   max_score, self._OWW_THRESHOLD,
-                                   self._OWW_MODEL_PATH.split("/")[-1])
+                logger.warning("OWW score: %.4f (threshold=%.1f)",
+                               max_score, self._OWW_THRESHOLD)
                 if any(v >= self._OWW_THRESHOLD for v in scores.values()):
                     self._oww_model.reset()
                     return True
