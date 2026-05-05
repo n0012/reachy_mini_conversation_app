@@ -1,54 +1,329 @@
 ---
-title: Reachy Mini Conversation App
+title: Reachy Mini Conversation App — Gemini Edition
 emoji: 🎤
-colorFrom: red
-colorTo: blue
+colorFrom: blue
+colorTo: purple
 sdk: static
 pinned: false
-short_description: Talk with Reachy Mini!
+short_description: Gemini Live voice assistant with memory, MCP tools, and home control
 suggested_storage: large
 tags:
  - reachy_mini
  - reachy_mini_python_app
+ - gemini
+ - vertex-ai
 ---
 
-# Reachy Mini Conversation App
+# Reachy Mini — Gemini Live Edition
 
-Gemini Live voice assistant running on the Reachy Mini robot. Supports real-time conversation, Google Search grounding, per-profile personalities, and persistent memory via Vertex AI Memory Bank.
-
-Fork of [`pollen-robotics/reachy_mini_conversation_app`](https://huggingface.co/spaces/pollen-robotics/reachy_mini_conversation_app).
-
----
-
-## Robot
-
-| | |
-|---|---|
-| **SSH user** | `pollen` |
-| **SSH password** | `root` |
-| **IP** | `10.0.0.60` |
-| **OS** | Linux aarch64 (Reachy Mini Pollen image) |
-| **Model** | `gemini-3.1-flash-live-preview` |
+A fork of the [Pollen Robotics conversation app](https://huggingface.co/spaces/pollen-robotics/reachy_mini_conversation_app) rebuilt around the Gemini Live API with persistent per-user memory, profile-scoped MCP tools, and an offline wake word — all managed from a headless browser UI on the robot.
 
 ---
 
-## One-time setup on the robot
+## What's new vs the base app
+
+| Feature | Base app | This fork |
+|---|---|---|
+| AI backend | HF / OpenAI / Gemini | Gemini Live only (`gemini-3.1-flash-live-preview`) |
+| Persistent memory | ✗ | ✅ Vertex AI Agent Engine — per-user, cross-session |
+| MCP tool ecosystem | ✗ | ✅ Per-profile servers with secure credential injection |
+| Home Assistant | ✗ | ✅ Full home control via HA MCP (lights, climate, media, locks) |
+| Wake word | ✗ | ✅ OpenWakeWord — Hey Jarvis built-in, Hey Reachy trainable |
+| Sleep mode | ✗ | ✅ Auto-sleep after 10 min idle — zero API cost |
+| Live monitor | ✗ | ✅ Browser camera feed + real-time transcript stream |
+| Settings UI | Basic | ✅ Full headless web app — setup wizard, profile editor, env vars |
+| Google Search | Global flag | ✅ Per-profile toggle |
+| Calendar | ✗ | ✅ Read + create via Home Assistant Google Calendar |
+
+---
+
+## How it works
+
+Four Google Cloud pillars power this app:
+
+```
+┌─────────────────────────────────────────────────────┐
+│                  Reachy Mini Robot                  │
+│                                                     │
+│  Microphone → Gemini Live API → Speaker             │
+│               (gemini-3.1-flash-live-preview)       │
+│               ↕                                     │
+│  ┌────────────────────┐  ┌─────────────────────┐   │
+│  │  Vertex AI Agent   │  │   MCP Tool Servers  │   │
+│  │  Engine Memory     │  │  Home Assistant     │   │
+│  │  (per-user facts)  │  │  Weather, Calendar  │   │
+│  └────────────────────┘  └─────────────────────┘   │
+│               ↕                                     │
+│  ┌────────────────────┐                             │
+│  │  Google Search     │                             │
+│  │  Grounding         │                             │
+│  │  (per-profile)     │                             │
+│  └────────────────────┘                             │
+└─────────────────────────────────────────────────────┘
+```
+
+---
+
+## Quick start
 
 ```bash
-ssh pollen@10.0.0.60   # password: root
+# 1. SSH to robot
+ssh pollen@ROBOT_IP   # password: root
 
-# Clone and install
+# 2. Clone and install
 cd ~/dev
 git clone https://github.com/n0012/reachy_mini_conversation_app.git
 /venvs/apps_venv/bin/pip install -e ~/dev/reachy_mini_conversation_app/reachy_mini_conversation_app/
 
-# Copy .env into place (must be here for find_dotenv to find it — launcher CWD is under /venvs/mini_daemon)
-cp ~/dev/reachy_mini_conversation_app/reachy_mini_conversation_app/.env /venvs/mini_daemon/.env
-
-# Copy ADC credentials from Mac
-sshpass -p 'root' scp ~/.config/gcloud/application_default_credentials.json \
-  pollen@10.0.0.60:/home/pollen/.config/gcloud/application_default_credentials.json
+# 3. Open the setup wizard
+# On your computer, navigate to: http://ROBOT_IP:7860
+# Complete the one-time setup (API keys, GCP project, Agent Engine ID)
 ```
+
+The setup wizard stores everything in `~/.reachy_mini/.env` on the robot. No manual `.env` editing required.
+
+---
+
+## Authentication — two keys required
+
+This app uses two separate Google authentication paths:
+
+| | **Gemini API Key** | **Vertex AI (Agent Engine)** |
+|---|---|---|
+| What it's for | Gemini Live API (voice/video streaming) | Memory Bank read/write |
+| Where to get it | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | GCP service account key |
+| Why separate? | `gemini-3.1-flash-live-preview` is only available via AI Studio endpoint — not Vertex AI |
+| Auth method | `GEMINI_API_KEY` env var | Service account JSON (pasted in setup wizard) |
+
+> **Note on auth roadmap:** The service account key approach is functional but requires manual rotation. OAuth / ADC is being considered as a future alternative — contributions welcome.
+
+### GCP setup (one-time)
+
+**1. Enable APIs**
+```bash
+gcloud services enable aiplatform.googleapis.com --project=YOUR_PROJECT_ID
+```
+
+**2. Create service account**
+```bash
+export PROJECT_ID=YOUR_PROJECT_ID
+
+gcloud iam service-accounts create reachy-mini \
+  --display-name="Reachy Mini" \
+  --project=$PROJECT_ID
+
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="serviceAccount:reachy-mini@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role="roles/aiplatform.user" \
+  --condition=None
+```
+
+**3. Download the key**
+```bash
+gcloud iam service-accounts keys create reachy-mini-sa-key.json \
+  --iam-account=reachy-mini@${PROJECT_ID}.iam.gserviceaccount.com \
+  --project=$PROJECT_ID
+```
+
+> If key creation is blocked by an org policy, see [docs/GCP_ORG_POLICY.md](docs/GCP_ORG_POLICY.md).
+
+**4. Create a Reasoning Engine instance (Memory Bank)**
+```bash
+curl -X POST \
+  "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/${PROJECT_ID}/locations/us-central1/reasoningEngines" \
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  -H "Content-Type: application/json" \
+  -d '{"displayName": "reachy-memory", "spec": {}}'
+```
+
+Note the `name` field in the response — the numeric ID at the end is your `VERTEX_REASONING_ENGINE_ID`.
+
+Paste the service account key JSON into the setup wizard at `http://ROBOT_IP:7860`.
+
+---
+
+## Persistent Memory — Vertex AI Agent Engine
+
+Memory is backed by [Vertex AI Agent Engine](https://cloud.google.com/vertex-ai/generative-ai/docs/agent-engine/overview) and follows a three-stage flow on every session:
+
+```
+Session start          During session         Session end
+──────────────         ──────────────         ───────────
+Auto-recall            Auto-capture           Auto-save
+─────────────          ────────────           ──────────
+Vector search          Model calls            Full transcript
+retrieves facts  →     remember() to   →      ingested and
+for this user          store new facts         deduplicated
+and injects them       silently mid-           into memory bank
+into system prompt     conversation
+```
+
+**Key properties:**
+- **Per-user scope** — memories are isolated by `user_id` + `profile`. `identify_user` switches the active scope mid-conversation so multiple household members each have their own persistent context.
+- **Facts, not transcripts** — the memory bank stores extracted facts ("prefers oat milk", "working on bathroom renovation"), not raw conversation logs. Each session adds to and refines what's known.
+- **Opt-in per profile** — add `enabled=true` to `profiles/{name}/memory.txt` to enable. Profiles without this file run without memory (useful for public kiosk or demo profiles).
+- **Mid-session saves** — every 20 turns, a background save is triggered so long sessions aren't lost if the robot is powered off.
+
+Memory is enabled for the included `reachy-gemini` reference profile.
+
+---
+
+## MCP Tool Ecosystem
+
+Each profile can define its own set of MCP servers in `profiles/{name}/mcp_servers.json`. Three transports are supported:
+
+| Transport | Use case |
+|---|---|
+| `stdio` | Local scripts (weather, calendar) |
+| `streamablehttp` | Remote services (Home Assistant) |
+| `sse` | SSE-based MCP servers |
+
+**Credential injection** — use `${ENV_VAR_NAME}` in header values. The app substitutes environment variables at connection time. Store secrets via the **Environment Variables** panel in the settings UI at `http://ROBOT_IP:7860`.
+
+Example `mcp_servers.json`:
+```json
+[
+  {
+    "name": "weather",
+    "transport": "stdio",
+    "command": ["/venvs/apps_venv/bin/python3", "/path/to/weather_server.py"]
+  },
+  {
+    "name": "home_assistant",
+    "transport": "streamablehttp",
+    "url": "http://homeassistant.local:8123/api/mcp",
+    "headers": {
+      "Authorization": "Bearer ${HA_MCP_TOKEN}"
+    }
+  }
+]
+```
+
+---
+
+## Home Assistant Integration
+
+The `reachy-gemini` reference profile includes a full Home Assistant integration — the strongest consumer use case for a robot assistant in a smart home.
+
+**What it can control:**
+- 💡 Lights (individual rooms, scenes, schedules)
+- 🌡️ Climate (thermostats, temperature sensors by room)
+- 🎵 Music (Music Assistant + Sonos, with Plex / Apple Music support)
+- 🔒 Doors and locks (with confirmation before operating)
+- 🪟 Shades and covers
+- 🌿 Sprinklers
+- 📅 Google Calendar (read + create — edit/delete not supported by HA)
+- 📺 Apple TV control
+
+**Setup:**
+1. Enable the [Home Assistant MCP Server](https://developers.home-assistant.io/blog/2025/04/09/mcp-server/) in HA (`Settings → Devices & Services → Add Integration → Model Context Protocol`)
+2. Create a Long-Lived Access Token in HA (`Profile → Security → Long-Lived Access Tokens`)
+3. Add `HA_MCP_TOKEN=your_token` in the **Environment Variables** panel at `http://ROBOT_IP:7860`
+4. The `reachy-gemini` profile's `mcp_servers.json` handles the rest
+
+The system prompt in `reachy-gemini` shows the full pattern for natural language home control — describing entity IDs, scene mappings, and multi-room audio routing in a way the model handles cleanly without ever exposing entity IDs to the user.
+
+---
+
+## Profiles
+
+Each profile is a folder under `profiles/`:
+
+```
+profiles/reachy-gemini/          ← included reference profile
+  instructions.txt               — system prompt
+  tools.txt                      — enabled tools (one per line)
+  voice.txt                      — Gemini voice name
+  grounding.txt                  — optional: google_search=true
+  memory.txt                     — optional: enabled=true
+  mcp_servers.json               — optional: MCP server list
+```
+
+Set `REACHY_MINI_CUSTOM_PROFILE=reachy-gemini` in the setup wizard to activate.
+
+The included `reachy-gemini` profile demonstrates all features: identity-first camera flow, multi-user memory scope switching, Home Assistant control, weather, calendar, and Google Search grounding.
+
+---
+
+## Web UI
+
+The app runs a headless settings server at `http://ROBOT_IP:7860` — no Gradio mode needed. All management is done from a browser.
+
+### Setup wizard (first run)
+Guides through API key entry, GCP credentials, voice selection, and Agent Engine ID. Stores everything in `~/.reachy_mini/.env`.
+
+### Personality Studio
+- Profile picker with live apply and startup-profile persistence
+- Full system prompt editor
+- Voice selector with audio preview
+- Tool checkboxes, MCP server editor, Google Search toggle
+
+### Live Monitor *(new — not in base app)*
+Real-time view of what Reachy sees and hears:
+- **Camera feed** — 1fps MJPEG stream from the robot's camera, displayed live in the browser
+- **Conversation transcript** — SSE stream of everything said (user and Reachy), replays from session start on reconnect
+- **Activity log** — tool calls, memory events, search queries in a terminal-style log
+- **Wake / Sleep buttons** — manually trigger sleep mode or wake the robot
+
+### Configuration panel
+- Update GCP credentials without restarting
+- Environment variable manager — add/edit/delete secrets used by MCP servers (e.g. `HA_MCP_TOKEN`)
+
+---
+
+## Wake Word & Sleep Mode
+
+### Sleep mode
+After 10 minutes of no conversation, Reachy automatically:
+1. Closes the Gemini Live WebSocket — billing stops immediately
+2. Moves to a sleep pose
+3. Switches to offline wake word detection (zero cloud cost)
+
+### Wake word
+Uses [OpenWakeWord](https://github.com/dscripka/openWakeWord) for offline detection. Default model: `hey_jarvis_v0.1.onnx` (ships with OWW).
+
+**CPU optimization** — a VAD pre-filter skips neural network inference during silence, reducing idle CPU load by ~33% on the robot's ARM64 processor.
+
+### Training a custom "Hey Reachy" wake word
+
+A Colab training notebook is included: [`oww_training/hey_reachy_training.ipynb`](oww_training/hey_reachy_training.ipynb)
+
+See **[docs/wake_word_training.md](docs/wake_word_training.md)** for the full guide, including:
+- A100 GPU setup on Google Colab Enterprise
+- Generating synthetic training data with Piper TTS
+- Generating voice samples with Gemini 2.5 Flash TTS across all 20 Gemini voices
+- Deploying the trained ONNX model to the robot
+
+---
+
+## Deploying
+
+### SSH direct deploy
+```bash
+# Push source from Mac
+rsync -avz --exclude='__pycache__' --exclude='*.pyc' --exclude='.git' \
+  reachy_mini_conversation_app/src/reachy_mini_conversation_app/ \
+  pollen@ROBOT_IP:~/dev/reachy_mini_conversation_app/reachy_mini_conversation_app/src/reachy_mini_conversation_app/
+
+# Sync profiles
+rsync -avz \
+  reachy_mini_conversation_app/profiles/ \
+  pollen@ROBOT_IP:~/dev/reachy_mini_conversation_app/reachy_mini_conversation_app/profiles/
+```
+
+### Git pull deploy
+```bash
+sshpass -p 'root' ssh pollen@ROBOT_IP \
+  'cd ~/dev/reachy_mini_conversation_app/reachy_mini_conversation_app && git pull && /venvs/apps_venv/bin/pip install -e . -q'
+```
+
+### Publishing to HuggingFace
+```bash
+git remote add hf https://huggingface.co/spaces/YOUR_HF_USERNAME/YOUR_SPACE_NAME
+git push hf main
+```
+
+Files excluded from HuggingFace uploads are listed in `.hfignore` (private profiles, local dev artifacts).
 
 ---
 
@@ -56,79 +331,35 @@ sshpass -p 'root' scp ~/.config/gcloud/application_default_credentials.json \
 
 | Variable | Required | Description |
 |---|---|---|
-| `GEMINI_API_KEY` | ✅ | Google AI Studio key — [aistudio.google.com](https://aistudio.google.com) |
+| `GEMINI_API_KEY` | ✅ | Google AI Studio key — [aistudio.google.com](https://aistudio.google.com/apikey) |
 | `GCP_PROJECT_ID` | ✅ | GCP project for Vertex AI Memory Bank |
 | `GCP_LOCATION` | ✅ | Default: `us-central1` |
 | `VERTEX_REASONING_ENGINE_ID` | ✅ | Agent Engine instance ID |
-| `GOOGLE_APPLICATION_CREDENTIALS` | ✅ | Path to ADC or service account key |
+| `GOOGLE_APPLICATION_CREDENTIALS` | ✅ | Path to service account key JSON |
 | `MODEL_NAME` | optional | Default: `gemini-3.1-flash-live-preview` |
-| `GOOGLE_SEARCH_GROUNDING` | optional | Set `1` to enable Google Search globally |
-| `REACHY_MINI_CUSTOM_PROFILE` | optional | Profile name to load (default: `default`) |
+| `REACHY_MINI_CUSTOM_PROFILE` | optional | Profile to load on startup |
 | `REACHY_MINI_PROFILES_OVERRIDE` | optional | Absolute path to profiles directory |
-| `REACHY_MINI_EXTERNAL_PROFILES_DIRECTORY` | optional | Path to additional profiles |
 | `REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY` | optional | Path to additional tool `.py` files |
-| `AUTOLOAD_EXTERNAL_TOOLS` | optional | Set `1` to auto-load all tools in external tools dir |
+| `AUTOLOAD_EXTERNAL_TOOLS` | optional | Set `1` to auto-load all tools in external dir |
 
 ---
 
-## Deploying
+## Tools
 
-### SSH direct deploy (recommended while developing locally)
+| Tool | Description |
+|---|---|
+| `dance` | Play a named or random dance move |
+| `stop_dance` | Stop current dance |
+| `play_emotion` | Play a pre-recorded emotion clip |
+| `stop_emotion` | Stop current emotion |
+| `camera` | Capture a frame and send to Gemini for visual reasoning |
+| `head_tracking` | Toggle face-tracking head movement |
+| `move_head` | Move head left/right/up/down/front |
+| `remember` | Store a fact in long-term memory (Agent Engine) |
+| `identify_user` | Switch active user — reloads memory scope |
+| `do_nothing` | Explicitly stay still and silent |
 
-Pushes local source directly to the robot — no GitHub intermediary.
-
-```bash
-# From the repo root on Mac
-rsync -avz --exclude='__pycache__' --exclude='*.pyc' --exclude='.git' \
-  reachy_mini_conversation_app/src/reachy_mini_conversation_app/ \
-  pollen@10.0.0.60:~/dev/reachy_mini_conversation_app/reachy_mini_conversation_app/src/reachy_mini_conversation_app/
-
-# Sync profiles if changed
-rsync -avz \
-  reachy_mini_conversation_app/profiles/ \
-  pollen@10.0.0.60:~/dev/reachy_mini_conversation_app/reachy_mini_conversation_app/profiles/
-```
-
-The install is editable so rsync'd files are live immediately. Restart the app on the robot to pick up changes.
-
-### Git pull deploy (when pushing to GitHub first)
-
-```bash
-sshpass -p 'root' ssh pollen@10.0.0.60 \
-  'cd ~/dev/reachy_mini_conversation_app/reachy_mini_conversation_app && git pull'
-```
-
-### Refreshing ADC credentials
-
-ADC from `gcloud auth application-default login` expires periodically. When it does, Vertex AI Memory Bank reads and writes silently fail.
-
-```bash
-# 1. Re-authenticate on Mac
-gcloud auth application-default login
-
-# 2. Copy to robot
-sshpass -p 'root' scp \
-  ~/.config/gcloud/application_default_credentials.json \
-  pollen@10.0.0.60:/home/pollen/.config/gcloud/application_default_credentials.json
-```
-
-Long-term fix: use a service account key (doesn't expire). Set `GOOGLE_APPLICATION_CREDENTIALS` in `.env`.
-
-### Restore `.env` after reboot
-
-The `.env` at `/venvs/mini_daemon/.env` doesn't survive reboots:
-
-```bash
-sshpass -p 'root' ssh pollen@10.0.0.60 \
-  'cp ~/dev/reachy_mini_conversation_app/reachy_mini_conversation_app/.env /venvs/mini_daemon/.env'
-```
-
-### Publishing to HuggingFace Space (app store distribution)
-
-```bash
-git remote add hf https://huggingface.co/spaces/n0012/reachy_mini_conversation_app_gemini
-git push hf main
-```
+Enable/disable tools per profile in `profiles/{name}/tools.txt`.
 
 ---
 
@@ -154,113 +385,7 @@ All 30 Gemini Live voices. Source: [configure-language-voice](https://docs.cloud
 | Iapetus | Clear | Zephyr | Bright |
 | Kore | Firm | Zubenelgenubi | Casual |
 
-Set voice per profile in `profiles/{name}/voice.txt`. Current default: **Sadachbia** (Lively).
-
----
-
-## Profiles
-
-Each profile is a folder under `profiles/`:
-
-```
-profiles/my_profile/
-  instructions.txt    — system prompt
-  tools.txt           — enabled tools (one per line)
-  voice.txt           — Gemini voice name
-  grounding.txt       — optional: google_search=true
-  mcp_servers.json    — optional: MCP server list
-```
-
-Set `REACHY_MINI_CUSTOM_PROFILE=my_profile` in `.env` to activate.
-
----
-
-## Memory (Vertex AI Memory Bank)
-
-Persistent per-user memory backed by Agent Engine instance `YOUR_ENGINE_ID` on project `losiern-vibe`.
-
-- **Load**: memories retrieved at session start and injected into the system prompt
-- **Save**: transcript ingested after session ends
-- **Remember tool**: model can explicitly store facts mid-conversation
-- **Multi-user**: `identify_user` tool scopes memories per person; active user persisted in `~/.reachy_mini/active_user.json`
-
-### GCP setup (one-time)
-
-The app authenticates to both Gemini and the Memory Bank via a single service account key — no Gemini API key needed.
-
-**1. Enable APIs**
-
-```bash
-gcloud services enable aiplatform.googleapis.com --project=YOUR_PROJECT_ID
-```
-
-**2. Create service account and grant permissions**
-
-```bash
-export PROJECT_ID=YOUR_PROJECT_ID
-
-gcloud iam service-accounts create reachy-mini \
-  --display-name="Reachy Mini" \
-  --project=$PROJECT_ID
-
-# roles/aiplatform.user covers Gemini Live API + Agent Engine memory
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="serviceAccount:reachy-mini@${PROJECT_ID}.iam.gserviceaccount.com" \
-  --role="roles/aiplatform.user" \
-  --condition=None
-```
-
-**3. Download the key**
-
-```bash
-gcloud iam service-accounts keys create reachy-mini-sa-key.json \
-  --iam-account=reachy-mini@${PROJECT_ID}.iam.gserviceaccount.com \
-  --project=$PROJECT_ID
-```
-
-> If key creation is blocked by an org policy, see [docs/GCP_ORG_POLICY.md](docs/GCP_ORG_POLICY.md) for the override steps.
-
-**4. Create a Reasoning Engine instance (Memory Bank)**
-
-```bash
-# Via REST — note the ID returned → VERTEX_REASONING_ENGINE_ID in setup wizard
-curl -X POST \
-  "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/${PROJECT_ID}/locations/us-central1/reasoningEngines" \
-  -H "Authorization: Bearer $(gcloud auth print-access-token)" \
-  -H "Content-Type: application/json" \
-  -d '{"displayName": "reachy-memory", "spec": {}}'
-```
-
-Paste the key JSON into the setup wizard at `http://ROBOT_IP:7860` — it handles everything from there.
-
----
-
-## Tools
-
-| Tool | Description |
-|---|---|
-| `dance` | Play a named or random dance move |
-| `stop_dance` | Stop current dance |
-| `play_emotion` | Play a pre-recorded emotion clip |
-| `stop_emotion` | Stop current emotion |
-| `camera` | Capture a frame and ask Gemini about it |
-| `head_tracking` | Toggle face-tracking head movement |
-| `move_head` | Move head left/right/up/down/front |
-| `remember` | Store a fact in long-term memory |
-| `identify_user` | Switch active user for memory scoping |
-| `do_nothing` | Explicitly stay still and silent |
-
----
-
-## Local testing (Mac — no robot required)
-
-```bash
-cd /Users/nick/dev/github/n0012/personal/n0012-monorepo/reachymini
-PYTHONPATH=reachy_mini_conversation_app/src uv run --no-project pytest \
-  reachy_mini_conversation_app/tests/test_gemini_only_config.py \
-  reachy_mini_conversation_app/tests/test_voices.py \
-  reachy_mini_conversation_app/tests/test_config_name_collisions.py -v
-```
+Set voice per profile in `profiles/{name}/voice.txt`. Reference profile default: **Sadachbia** (Lively). Preview any voice from the Personality Studio UI.
 
 ---
 
@@ -270,45 +395,38 @@ Key files (paths relative to `src/reachy_mini_conversation_app/`):
 
 | File | Role |
 |---|---|
-| `main.py` | Entrypoint — instantiates `GeminiLiveHandler`, memory backend, MCP pool |
+| `main.py` | Entrypoint — `GeminiLiveHandler`, memory backend, MCP pool |
 | `config.py` | Constants: `AVAILABLE_VOICES`, `DEFAULT_MODEL_NAME`, `DEFAULT_VOICE` |
-| `gemini_live.py` | Gemini handler; `_build_live_config()` builds `LiveConnectConfig` |
-| `memory.py` | `VertexMemoryBackend` and `FileMemoryBackend`; `_get_token()` for ADC/SA auth |
+| `gemini_live.py` | Gemini handler, sleep/wake state machine, OWW detection |
+| `memory.py` | `VertexMemoryBackend`; `_get_token()` for ADC/SA auth |
+| `console.py` | FastAPI settings server — SSE streams, camera endpoint, REST API |
 | `tools/core_tools.py` | `Tool` ABC — base class for all tools including MCP adapters |
-| `tools/__init__.py` | 3-tier loader: profile tools → core tools → external dir |
-| `prompts.py` | `_expand_prompt_includes()` — handles memory injection and prompt includes |
+| `tools/mcp_client.py` | MCP pool with stdio/streamablehttp/sse transport + `${VAR}` substitution |
+| `prompts.py` | Memory injection and prompt assembly |
 | `profiles/{name}/` | Profile bundles: `instructions.txt`, `tools.txt`, `voice.txt`, `mcp_servers.json` |
-
-SDK: `google-genai >= 1.0.0`. Auth: `google-auth` (ADC or service account key).
 
 ---
 
 ## Live API tool behavior
 
-Source: [ai.google.dev/gemini-api/docs/live-api/tools](https://ai.google.dev/gemini-api/docs/live-api/tools)
-
-### What's supported on `gemini-3.1-flash-live-preview`
+### Support matrix (`gemini-3.1-flash-live-preview`)
 
 | Feature | Supported |
 |---|---|
 | Google Search grounding | ✅ |
 | Function calling (synchronous) | ✅ |
-| Function calling (async / NON_BLOCKING) | ❌ not yet — Gemini 2.5 Flash only |
+| Function calling (async / NON_BLOCKING) | ❌ Gemini 2.5 Flash only |
 | Google Maps, code execution, URL context | ❌ |
 
-### Scheduling (response-side hints)
+### Scheduling hints
 
-Even with synchronous calls, responses can include a `scheduling` field to tell the model *how* to announce results. Applied in `gemini_live.py:_handle_tool_result()`:
+Applied in `gemini_live.py:_handle_tool_result()` to control how the model announces tool results:
 
 | Scheduling | Behaviour | Used for |
 |---|---|---|
-| `SILENT` | Use result later without speaking | `remember`, `identify_user`, `do_nothing`, motion tools |
-| `WHEN_IDLE` | Wait for a natural conversational pause | `camera`, `task_status`, `task_cancel` |
+| `SILENT` | Use result silently | `remember`, `identify_user`, `do_nothing`, motion tools |
+| `WHEN_IDLE` | Wait for natural pause | `camera`, `task_status` |
 | `INTERRUPT` | Report immediately | explicit user-requested tools |
-
-### When NON_BLOCKING lands on 3.1
-
-Add `"behavior": "NON_BLOCKING"` to function declarations in `_tool_specs_to_gemini_declarations()`. The `BackgroundToolManager` and scheduling hints are already staged for this.
 
 ---
 
@@ -317,9 +435,8 @@ Add `"behavior": "NON_BLOCKING"` to function declarations in `_tool_specs_to_gem
 | Issue | Root cause | Workaround |
 |---|---|---|
 | Session ends after ~10 min | Live API hard limit | Automatic restart; memory saves on close |
-| `google_search` results stale on re-ask | Grounding caches per topic per session | Use an MCP function tool for real-time endpoints instead |
-| Function calling blocks audio by default | `gemini-3.1-flash-live-preview` only supports synchronous tool calls | Scheduling hints (`SILENT`/`WHEN_IDLE`/`INTERRUPT`) already set on responses. `NON_BLOCKING` declarations staged for when 3.1 supports async (currently Gemini 2.5 Flash only) |
-| `.env` lost on reboot | Launcher CWD quirk — must be at `/venvs/mini_daemon/.env` | Re-run the cp command after reboot (see Deploying section) |
+| Function calling blocks audio | `gemini-3.1-flash-live-preview` synchronous only | Scheduling hints already set; `NON_BLOCKING` staged for when 3.1 supports async |
+| Google Search results stale on re-ask | Grounding caches per topic per session | Use MCP function tools for real-time endpoints |
 
 ---
 
@@ -327,12 +444,12 @@ Add `"behavior": "NON_BLOCKING"` to function declarations in `_tool_specs_to_gem
 
 | Source | What we took from it |
 |---|---|
-| [pollen-robotics/reachy_mini_conversation_app](https://huggingface.co/spaces/pollen-robotics/reachy_mini_conversation_app) | Base fork — robot integration, profile system, tool plugin loader, Gemini Live handler |
-| [SJang1/ha-gemini-live](https://github.com/SJang1/ha-gemini-live) | Google Search grounding pattern, native Gemini Live speech-to-speech architecture |
-| [Shubhamsaboo/openclaw-vertexai-memorybank](https://github.com/Shubhamsaboo/openclaw-vertexai-memorybank) | Vertex AI Memory Bank REST API surface, scoping model, noise filter thresholds |
-| [google-gemini/cookbook: Get_started_LiveAPI_tools.ipynb](https://github.com/google-gemini/cookbook/blob/main/quickstarts/Get_started_LiveAPI_tools.ipynb) | Confirms raw dict format for `google_search` + `function_declarations` together |
-| [google-gemini/gemini-skills: gemini-live-api-dev](https://github.com/google-gemini/gemini-skills/blob/main/skills/gemini-live-api-dev/SKILL.md) | Context compression for long sessions, `send_realtime_input` vs `send_client_content` |
-| [ai.google.dev: Live API tools](https://ai.google.dev/gemini-api/docs/live-api/tools) | Tool support matrix per model; `NON_BLOCKING` + scheduling (`INTERRUPT`/`WHEN_IDLE`/`SILENT`) — async calls only on Gemini 2.5 Flash, not yet on 3.1; Google Maps/code execution/URL context unsupported |
+| [pollen-robotics/reachy_mini_conversation_app](https://huggingface.co/spaces/pollen-robotics/reachy_mini_conversation_app) | Base fork — robot integration, profile system, tool loader, Gemini Live handler |
+| [SJang1/ha-gemini-live](https://github.com/SJang1/ha-gemini-live) | Google Search grounding pattern |
+| [Shubhamsaboo/openclaw-vertexai-memorybank](https://github.com/Shubhamsaboo/openclaw-vertexai-memorybank) | Vertex AI Agent Engine REST surface, memory scoping model |
+| [google-gemini/cookbook: Live API tools](https://github.com/google-gemini/cookbook/blob/main/quickstarts/Get_started_LiveAPI_tools.ipynb) | `google_search` + `function_declarations` format |
+| [ai.google.dev: Live API tools](https://ai.google.dev/gemini-api/docs/live-api/tools) | Tool support matrix, scheduling hints |
+| [music-assistant/voice-support](https://github.com/music-assistant/voice-support) | Music Assistant `HassMediaSearchAndPlay` interface |
 
 ---
 
