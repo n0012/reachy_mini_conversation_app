@@ -850,6 +850,11 @@ class GeminiLiveHandler(AsyncStreamHandler):
                 chunk = np.array(self._oww_buffer[:self._OWW_CHUNK], dtype=np.int16)
                 self._oww_buffer = self._oww_buffer[self._OWW_CHUNK:]
                 scores = self._oww_model.predict(chunk)
+                max_score = max(scores.values()) if scores else 0.0
+                if max_score > 0.1:  # log anything above noise floor
+                    logger.warning("OWW score: %.3f (threshold=%.1f) model=%s",
+                                   max_score, self._OWW_THRESHOLD,
+                                   self._OWW_MODEL_PATH.split("/")[-1])
                 if any(v >= self._OWW_THRESHOLD for v in scores.values()):
                     self._oww_model.reset()
                     return True
@@ -870,7 +875,10 @@ class GeminiLiveHandler(AsyncStreamHandler):
                 audio_frame = resample(audio_frame, int(len(audio_frame) * GEMINI_INPUT_SAMPLE_RATE / input_sample_rate))
             audio_int16 = audio_to_int16(audio_frame)
             # Skip OWW inference during silence — saves ~33% of a core when quiet
-            if np.abs(audio_int16).mean() > 200:
+            _mean = np.abs(audio_int16).mean()
+            if _mean > 50:  # lowered from 200 for debug — restore after tuning
+                logger.debug("OWW VAD pass: mean=%.1f", _mean)
+            if _mean > 50:
                 if self._check_wake_word(audio_int16):
                     logger.info("Wake word detected — waking up")
                     self._sleeping = False  # suppress further OWW triggers while wake() runs
