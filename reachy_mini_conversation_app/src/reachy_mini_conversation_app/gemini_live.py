@@ -865,10 +865,12 @@ class GeminiLiveHandler(AsyncStreamHandler):
             if GEMINI_INPUT_SAMPLE_RATE != input_sample_rate:
                 audio_frame = resample(audio_frame, int(len(audio_frame) * GEMINI_INPUT_SAMPLE_RATE / input_sample_rate))
             audio_int16 = audio_to_int16(audio_frame)
-            if self._check_wake_word(audio_int16):
-                logger.info("Wake word detected — waking up")
-                self._sleeping = False  # suppress further OWW triggers while wake() runs
-                asyncio.create_task(self.wake())
+            # Skip OWW inference during silence — saves ~33% of a core when quiet
+            if np.abs(audio_int16).mean() > 200:
+                if self._check_wake_word(audio_int16):
+                    logger.info("Wake word detected — waking up")
+                    self._sleeping = False  # suppress further OWW triggers while wake() runs
+                    asyncio.create_task(self.wake())
             return
 
         if not self.session:
