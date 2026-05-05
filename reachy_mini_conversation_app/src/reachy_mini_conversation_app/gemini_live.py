@@ -877,9 +877,8 @@ class GeminiLiveHandler(AsyncStreamHandler):
             audio_int16 = audio_to_int16(audio_frame)
             # Skip OWW inference during silence — saves ~33% of a core when quiet
             _mean = np.abs(audio_int16).mean()
-            if _mean > 50:  # lowered from 200 for debug — restore after tuning
-                logger.debug("OWW VAD pass: mean=%.1f", _mean)
-            if _mean > 50:
+            logger.warning("OWW audio mean=%.1f", _mean)  # debug — remove after tuning
+            if _mean > 10:  # very low threshold — just to confirm OWW fires
                 if self._check_wake_word(audio_int16):
                     logger.info("Wake word detected — waking up")
                     self._sleeping = False  # suppress further OWW triggers while wake() runs
