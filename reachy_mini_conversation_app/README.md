@@ -4,6 +4,7 @@ emoji: 🎤
 colorFrom: blue
 colorTo: purple
 sdk: static
+app_file: index.html
 pinned: false
 short_description: Gemini Live robot with memory, MCP tools, home control
 suggested_storage: large
