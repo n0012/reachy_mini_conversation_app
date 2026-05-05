@@ -5,7 +5,7 @@ colorFrom: blue
 colorTo: purple
 sdk: static
 pinned: false
-short_description: Gemini Live robot: memory, MCP tools, home control
+short_description: "Gemini Live robot: memory, MCP tools, home control"
 suggested_storage: large
 tags:
  - reachy_mini
