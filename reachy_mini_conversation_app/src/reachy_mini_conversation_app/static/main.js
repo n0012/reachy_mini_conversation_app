@@ -601,7 +601,7 @@ async function init() {
     const wakeBtn = document.getElementById("wake-btn");
     const sleepBtn = document.getElementById("sleep-btn");
     let currentProfile = st.setup_complete ? (await fetchWithTimeout("/session/status", {}, 3000).then(r => r.json()).catch(() => ({}))) : {};
-    currentProfile = currentProfile.profile || "yuki";
+    currentProfile = currentProfile.profile || "reachy-gemini";
 
     async function updateSleepState() {
       try {
