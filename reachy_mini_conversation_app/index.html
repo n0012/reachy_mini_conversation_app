@@ -61,6 +61,7 @@
 				<h3>Persistent memory per user</h3>
 				<p>Vertex AI Agent Engine stores facts about each person across sessions. Reachy greets you by name, picks up mid-topic, and keeps each household member's context private.</p>
 				<a href="https://cloud.google.com/vertex-ai/generative-ai/docs/agent-engine/overview" target="_blank" rel="noopener">↗ Vertex AI Agent Engine</a>
+				<a href="https://github.com/Shubhamsaboo/openclaw-vertexai-memorybank" target="_blank" rel="noopener" style="display:block;margin-top:4px">↗ Memory bank pattern</a>
 			</div>
 			<div class="feature-card">
 				<span class="icon">🔍</span>
@@ -92,6 +93,24 @@
 				<p>1fps camera feed, real-time transcript stream, activity log, and wake/sleep controls — all in the browser at <code>http://ROBOT_IP:7860</code>. Not in the base app.</p>
 				<a href="https://ai.google.dev/gemini-api/docs/live-api" target="_blank" rel="noopener">↗ Gemini Live API</a>
 			</div>
+		</div>
+	</section>
+
+	<section class="section">
+		<div class="section-header">
+			<p class="eyebrow">Memory architecture</p>
+			<h2>How Vertex AI Agent Engine works</h2>
+			<p class="intro">
+				Three-stage pipeline: semantic recall at session start, fact capture mid-conversation, transcript ingestion at session end.
+				Pattern from <a href="https://github.com/Shubhamsaboo/openclaw-vertexai-memorybank" target="_blank" rel="noopener">Shubhamsaboo/openclaw-vertexai-memorybank</a>.
+			</p>
+		</div>
+		<div style="text-align:center">
+			<img
+				src="https://raw.githubusercontent.com/Shubhamsaboo/openclaw-vertexai-memorybank/2500c735953c892067ed8638012e7cde9ac9cd41/architecture.jpg"
+				alt="Vertex AI Agent Engine memory architecture"
+				style="max-width:100%;border-radius:14px;border:1px solid rgba(255,255,255,0.09);box-shadow:0 16px 48px rgba(0,0,0,0.5)"
+			/>
 		</div>
 	</section>
 
