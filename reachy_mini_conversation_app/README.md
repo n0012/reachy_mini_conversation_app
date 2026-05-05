@@ -155,18 +155,31 @@ Session start          During session         Session end
 ──────────────         ──────────────         ───────────
 Auto-recall            Auto-capture           Auto-save
 ─────────────          ────────────           ──────────
-Vector search          Model calls            Full transcript
-retrieves facts  →     remember() to   →      ingested and
-for this user          store new facts         deduplicated
+Semantic search        Model calls            Full transcript
+retrieves relevant →   remember() to   →      ingested and
+facts for this user    store new facts         deduplicated
 and injects them       silently mid-           into memory bank
 into system prompt     conversation
 ```
 
+**Retrieval is semantic, not keyword-based.** At session start, the memory bank runs a vector similarity search across everything known about the current user. Facts that are contextually relevant to recent conversations surface first — the model isn't just reciting a list, it's recalling what matters right now.
+
 **Key properties:**
-- **Per-user scope** — memories are isolated by `user_id` + `profile`. `identify_user` switches the active scope mid-conversation so multiple household members each have their own persistent context.
-- **Facts, not transcripts** — the memory bank stores extracted facts ("prefers oat milk", "working on bathroom renovation"), not raw conversation logs. Each session adds to and refines what's known.
-- **Opt-in per profile** — add `enabled=true` to `profiles/{name}/memory.txt` to enable. Profiles without this file run without memory (useful for public kiosk or demo profiles).
-- **Mid-session saves** — every 20 turns, a background save is triggered so long sessions aren't lost if the robot is powered off.
+- **Per-user × per-profile scope** — memories partition by both `user_id` and `profile`. A user's memories under a "home assistant" profile are completely separate from their memories under a "work assistant" profile. `identify_user` switches scope mid-conversation so the right context is always active.
+- **Facts, not transcripts** — the memory bank stores extracted facts ("prefers oat milk", "working on bathroom renovation", "daughter's recital is Friday"), not raw conversation logs. Storage is efficient; retrieval is precise.
+- **Enables multi-user assistants** — every household member or team member gets their own persistent context. Reachy greets each person by name, picks up where you left off, and keeps each person's preferences private from others.
+- **Opt-in per profile** — add `enabled=true` to `profiles/{name}/memory.txt` to enable. Profiles without this file run stateless (useful for demo, kiosk, or shared-screen contexts).
+- **Mid-session saves** — every 20 turns, a background save runs so long sessions aren't lost if the robot is powered off.
+- **Explicit `remember` tool** — the model can call `remember("fact")` at any point to explicitly store something, giving it agency over its own long-term knowledge.
+
+### Use cases unlocked by per-user × per-profile memory
+
+| Deployment | How memory helps |
+|---|---|
+| **Family home** | Each family member gets their own preferences, schedule awareness, and conversation continuity. The robot knows who it's talking to from the camera, loads the right memories, and picks up mid-conversation. |
+| **Small business** | Different staff profiles (sales, support, ops) with different tool access. Each employee's context is private and persistent — the robot remembers their ongoing projects. |
+| **Reception / lobby** | A "visitor" profile with memory disabled for privacy. A "staff" profile with full memory for recurring colleagues. |
+| **Personal productivity** | One profile for work (calendar, task tools, no home control), one for home (HA, music, family context). Same robot, different persona, separate memory. |
 
 Memory is enabled for the included `reachy-gemini` reference profile.
 
@@ -202,6 +215,28 @@ Example `mcp_servers.json`:
   }
 ]
 ```
+
+---
+
+## Google Search Grounding
+
+Gemini Live supports native Google Search grounding — when enabled, the model retrieves live search results and cites them inline, rather than relying on training data that may be months out of date.
+
+**Why this matters for a physical assistant:**
+- Weather, sports scores, news, stock prices, flight status — all require real-time data
+- A robot that confidently gives stale answers is worse than one that says "let me check"
+- With grounding enabled, the model is instructed to search before answering any time-sensitive question and briefly signals when it does: "Let me check that." → answer
+
+**Per-profile toggle** — grounding is configured per profile in `profiles/{name}/grounding.txt`:
+```
+google_search=true
+```
+
+This means you can have one profile with grounding on (a real-time assistant that searches everything) and another with it off (a focused persona that stays on-topic without web distractions). A demo profile for a trade show might disable it entirely; a personal assistant profile for daily use should always have it on.
+
+**What it grounds:** Any query the model determines is time-sensitive or factual — news, weather, sports, current prices, local business hours, transit status. The model decides when to invoke search, not a keyword filter.
+
+> **Limitation:** Search results are cached per topic within a session. If you ask the same question twice, the model uses the cached grounding data. For endpoints that change faster than a session (e.g. live stock ticks), use an MCP function tool instead.
 
 ---
 
