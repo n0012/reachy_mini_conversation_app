@@ -1,0 +1,15 @@
+# Files excluded from HuggingFace Space publishing — kept in private git only
+
+# Private profiles with personal entity IDs, household config, and PII
+profiles/yuki/
+
+# OWW training artifacts
+oww_training/
+
+# Local dev / build artifacts
+__pycache__/
+*.pyc
+.DS_Store
+*.egg-info/
+dist/
+build/

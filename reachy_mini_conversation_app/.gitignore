@@ -8,5 +8,3 @@ __pycache__/
 *.pyc
 .DS_Store
 
-# Private profiles (contain personal config, entity IDs, PII)
-profiles/yuki/
