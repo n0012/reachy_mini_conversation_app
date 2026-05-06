@@ -845,8 +845,10 @@ class GeminiLiveHandler(AsyncStreamHandler):
     def _start_ei_detection(self, loop: asyncio.AbstractEventLoop) -> None:
         """Start Edge Impulse wake word detection in a background thread.
 
-        Uses luisomoreau/hey_reachy_wake_word_detection (Edge Impulse model trained
-        on real 'Hey Reachy' voice samples for linux-aarch64).
+        Mirrors luisomoreau/hey_reachy_wake_word_detection exactly — uses
+        AudioImpulseRunner with device_id passed to classifier() so the SDK
+        never prompts interactively. The .eim binary communicates with the SDK
+        via a Unix socket, not stdin/stdout.
         """
         if not os.path.exists(self._ei_model_path):
             logger.warning("Edge Impulse model not found at %s — wake word disabled", self._ei_model_path)
@@ -856,65 +858,50 @@ class GeminiLiveHandler(AsyncStreamHandler):
 
         def _run() -> None:
             try:
-                import subprocess as _sp
-                import json as _json
-                import time as _time
+                from edge_impulse_linux.audio import AudioImpulseRunner
                 import sounddevice as _sd
 
-                # Ensure binary is executable
+                # Ensure model binary is executable
                 mode = os.stat(self._ei_model_path).st_mode
                 if not (mode & stat.S_IXUSR):
                     os.chmod(self._ei_model_path, mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
-                # Find Reachy Mini audio device
-                device_id = 2  # default: reachymini_audio_src
-                for i, d in enumerate(_sd.query_devices()):
-                    if d['max_input_channels'] > 0 and 'reachy' in d['name'].lower():
-                        device_id = i
-                        break
-                logger.info("Edge Impulse starting with audio device id=%s", device_id)
-
-                proc = _sp.Popen(
-                    [self._ei_model_path],
-                    stdin=_sp.PIPE, stdout=_sp.PIPE, stderr=_sp.DEVNULL
-                )
-
-                # Feed device_id immediately — the binary prompts without a newline
-                # so readline() would block; writing upfront unblocks the read
-                _time.sleep(0.5)  # brief wait for binary to initialize
-                logger.info("Edge Impulse feeding device_id=%s to stdin", device_id)
-                proc.stdin.write(f'{device_id}\n'.encode())
-                proc.stdin.flush()
-
-                # Read classification JSON lines
-                while not stop_event.is_set() and self._sleeping:
-                    line = proc.stdout.readline()
-                    if not line:
-                        break
-                    text = line.decode('utf-8', errors='ignore').strip()
-                    if not text.startswith('{'):
-                        continue
-                    try:
-                        res = _json.loads(text)
-                        score = res.get("result", {}).get("classification", {}).get("hey_reachy", 0.0)
-                        if score > 0.05:
-                            logger.info("Edge Impulse score: %.3f", score)
-                        if score >= self._ei_threshold:
-                            logger.info("Hey Reachy detected! score=%.3f — waking up", score)
-                            self._sleeping = False
-                            asyncio.run_coroutine_threadsafe(self.wake(), loop)
+                # Find Reachy Mini audio device — mirrors luisomoreau's device selection
+                device_id = None
+                devices = _sd.query_devices()
+                for i, device in enumerate(devices):
+                    if 'Reachy Mini Audio' in device['name'] or 'reachymini' in device['name'].lower():
+                        if device['max_input_channels'] > 0:
+                            device_id = i
                             break
-                    except _json.JSONDecodeError:
-                        pass
+                if device_id is None:
+                    device_id = _sd.default.device[0]
 
-                proc.terminate()
-                try:
-                    proc.wait(timeout=2.0)
-                except Exception:
-                    proc.kill()
+                device_name = devices[device_id]['name'] if device_id < len(devices) else 'unknown'
+                logger.info("Edge Impulse using audio device %d: %s", device_id, device_name)
+
+                with AudioImpulseRunner(self._ei_model_path) as runner:
+                    info = runner.init()
+                    logger.info("Edge Impulse runner loaded: %s / %s",
+                                info['project']['owner'], info['project']['name'])
+
+                    for res, audio in runner.classifier(device_id=device_id):
+                        if stop_event.is_set() or not self._sleeping:
+                            break
+                        if "classification" in res["result"]:
+                            score = res["result"]["classification"].get("hey_reachy", 0.0)
+                            if score > 0.05:
+                                logger.info("Edge Impulse score: %.3f", score)
+                            if score >= self._ei_threshold:
+                                logger.info("Hey Reachy detected! score=%.3f — waking up", score)
+                                self._sleeping = False
+                                asyncio.run_coroutine_threadsafe(self.wake(), loop)
+                                break
 
             except Exception as e:
                 logger.warning("Edge Impulse detection error: %s", e)
+                import traceback as _tb
+                logger.debug(_tb.format_exc())
 
         self._ei_thread = threading.Thread(target=_run, daemon=True, name="ei-wake-word")
         self._ei_thread.start()
