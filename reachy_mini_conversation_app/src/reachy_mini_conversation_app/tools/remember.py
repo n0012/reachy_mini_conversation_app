@@ -10,10 +10,13 @@ class RememberTool(Tool):
 
     name = "remember"
     description = (
-        "Save an important fact about the user or your conversation to long-term memory. "
+        "Save a fact to long-term memory. "
         "Call this when you learn something worth remembering across future sessions — "
-        "such as a name, preference, relationship, or recurring topic. "
-        "Do not call this for trivial or one-off details."
+        "names, preferences, relationships, recurring topics. "
+        "Do not call this for trivial or one-off details. "
+        "If the fact is intentionally short-lived (e.g. 'user is at the airport today', "
+        "'feeling sick this week'), set lifetime_days to auto-expire it. "
+        "Default is permanent."
     )
     parameters_schema: Dict[str, Any] = {
         "type": "object",
@@ -21,7 +24,15 @@ class RememberTool(Tool):
             "fact": {
                 "type": "string",
                 "description": "The fact to remember, written as a short declarative sentence.",
-            }
+            },
+            "lifetime_days": {
+                "type": "integer",
+                "description": (
+                    "Optional. Days until this memory auto-expires (deleted at next session start). "
+                    "Use for time-bounded facts: 1 = today, 7 = this week, 30 = this month. "
+                    "Omit for permanent memories (the default)."
+                ),
+            },
         },
         "required": ["fact"],
     }
@@ -30,15 +41,24 @@ class RememberTool(Tool):
         fact: str = kwargs.get("fact", "").strip()
         if not fact:
             return {"status": "error", "message": "No fact provided."}
+        lifetime_days = kwargs.get("lifetime_days")
+        try:
+            lifetime_days = int(lifetime_days) if lifetime_days is not None else None
+        except (TypeError, ValueError):
+            lifetime_days = None
 
-        # Access the memory backend via the handler stored on deps (set in gemini_live.py)
         memory = getattr(deps, "memory_backend", None)
         profile = getattr(deps, "active_profile", "default") or "default"
         user_id = getattr(deps, "active_user", None)
 
         memory_enabled = getattr(deps, "memory_enabled", False)
         if memory is not None and memory_enabled:
-            await memory.remember(profile, fact, user_id=user_id)
-            return {"status": "remembered", "fact": fact, "user": user_id or "unknown"}
+            await memory.remember(profile, fact, user_id=user_id, lifetime_days=lifetime_days)
+            return {
+                "status": "remembered",
+                "fact": fact,
+                "user": user_id or "unknown",
+                "lifetime_days": lifetime_days,
+            }
 
         return {"status": "skipped", "reason": "Memory not enabled for this profile."}

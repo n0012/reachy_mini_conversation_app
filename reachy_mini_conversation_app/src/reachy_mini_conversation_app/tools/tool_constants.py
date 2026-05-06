@@ -17,3 +17,4 @@ class SystemTool(Enum):
     TASK_CANCEL = "task_cancel"
     GO_TO_SLEEP = "go_to_sleep"
     RECALL = "recall"
+    FORGET = "forget"

@@ -28,7 +28,8 @@ from typing import Protocol, runtime_checkable
 import google.auth
 import google.auth.transport.requests
 import math
-from datetime import datetime, timezone
+import urllib.parse
+from datetime import datetime, timedelta as _td, timezone
 
 
 logger = logging.getLogger(__name__)
@@ -87,7 +88,7 @@ class MemoryBackend(Protocol):
         """Return a text block injected into system_instruction at session start."""
         ...
 
-    async def search(self, profile: str, query: str, user_id: str | None = None, top_k: int = 10) -> list[str]:
+    async def search(self, profile: str, query: str, user_id: str | None = None, top_k: int = 10, with_ids: bool = False) -> list:
         """Mid-conversation recall — return up to top_k facts matching the query."""
         ...
 
@@ -95,8 +96,20 @@ class MemoryBackend(Protocol):
         """Persist a completed session transcript (fire-and-forget is fine)."""
         ...
 
-    async def remember(self, profile: str, fact: str, user_id: str | None = None) -> None:
-        """Store an explicit fact the model decided to keep."""
+    async def remember(self, profile: str, fact: str, user_id: str | None = None, lifetime_days: int | None = None) -> None:
+        """Store an explicit fact the model decided to keep. lifetime_days makes it expire."""
+        ...
+
+    async def list_memories(self, profile: str, user_id: str | None = None, page_size: int = 100) -> list[dict]:
+        """List all memories for a scope."""
+        ...
+
+    async def delete_memory(self, memory_name: str) -> bool:
+        """Delete a single memory by full resource name."""
+        ...
+
+    async def purge_expired(self, profile: str, user_id: str | None = None) -> int:
+        """Sweep ttl_until-tagged memories whose date is past. Returns count deleted."""
         ...
 
 
@@ -177,13 +190,17 @@ class VertexMemoryBackend:
         user_id: str | None = None,
         fetch_k: int = DEFAULT_FETCH_K,
         top_k: int = DEFAULT_TOP_K,
-    ) -> list[str]:
+        with_ids: bool = False,
+    ) -> list:
         """Retrieve facts for a query, distance-filter, recency-boost, return top facts.
 
         Vertex Memory Bank :retrieve only ranks by similarity. We over-fetch
         and then re-rank with: score = (1 - distance) + α * exp(-age_days / τ).
         Recent facts surface naturally even when an older fact is slightly
         more similar; old facts still win when nothing recent matches.
+
+        If with_ids=True, returns list of dicts {memory_id, fact, age_days}.
+        Otherwise returns plain list of fact strings.
         """
         scope = self._scope(profile, user_id)
         try:
@@ -215,7 +232,25 @@ class VertexMemoryBackend:
             return []
 
         ranked = self._rerank_with_recency(kept)[:top_k]
-        return [m["memory"]["fact"] for m in ranked if m.get("memory", {}).get("fact")]
+        if not with_ids:
+            return [m["memory"]["fact"] for m in ranked if m.get("memory", {}).get("fact")]
+        now = datetime.now(timezone.utc)
+        out: list[dict] = []
+        for m in ranked:
+            mem = m.get("memory") or {}
+            fact = mem.get("fact")
+            name = mem.get("name")
+            if not fact or not name:
+                continue
+            ts = mem.get("createTime") or mem.get("updateTime")
+            age_days: float | None = None
+            if ts:
+                try:
+                    age_days = round((now - datetime.fromisoformat(ts.replace("Z", "+00:00"))).total_seconds() / 86400.0, 1)
+                except Exception:
+                    pass
+            out.append({"memory_id": name, "fact": fact, "age_days": age_days})
+        return out
 
     @staticmethod
     def _rerank_with_recency(memories: list[dict]) -> list[dict]:
@@ -258,23 +293,27 @@ class VertexMemoryBackend:
         query: str,
         user_id: str | None = None,
         top_k: int = 10,
-    ) -> list[str]:
+        with_ids: bool = False,
+    ) -> list:
         """Mid-conversation recall. Returns up to `top_k` facts matching `query`.
 
         Used by the `recall` tool — Gemini can request additional memories
         when the initial session-start dump didn't include something it needs.
+        Pass with_ids=True to get [{memory_id, fact, age_days}, ...] instead of
+        plain strings — used by the `forget` tool to delete specific entries.
         """
-        facts = await self._retrieve(
+        results = await self._retrieve(
             profile, query, user_id=user_id,
             fetch_k=max(top_k * 2, 20),
             top_k=top_k,
+            with_ids=with_ids,
         )
         scope_user = user_id or get_active_user()
         logger.info(
             "Memory: search returned %d facts (user=%r profile=%r query=%r)",
-            len(facts), scope_user, profile, query[:80],
+            len(results), scope_user, profile, query[:80],
         )
-        return facts
+        return results
 
     @staticmethod
     def _is_meaningful_turn(turn: dict) -> bool:
@@ -333,16 +372,107 @@ class VertexMemoryBackend:
             }),
         )
 
-    async def remember(self, profile: str, fact: str, user_id: str | None = None) -> None:
-        """Store an explicit fact. Awaited so the call completes."""
+    async def remember(
+        self,
+        profile: str,
+        fact: str,
+        user_id: str | None = None,
+        lifetime_days: int | None = None,
+    ) -> None:
+        """Store an explicit fact. Awaited so the call completes.
+
+        If lifetime_days is set, the memory is tagged with a `ttl_until` label
+        (UTC ISO date). The session-start sweep deletes any memory whose
+        `ttl_until` is in the past — so use this for facts that are intentionally
+        ephemeral (e.g. "user is at the airport", lifetime_days=1).
+        """
         scope = self._scope(profile, user_id)
+        labels = {"source": "remember-tool"}
+        if lifetime_days is not None and lifetime_days > 0:
+            ttl_until = (datetime.now(timezone.utc) + _td(days=lifetime_days)).strftime("%Y-%m-%d")
+            labels["ttl_until"] = ttl_until
+            labels["ephemeral"] = "true"
         await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: self._generate_memories(scope, {
                 "direct_memories_source": {"direct_memories": [{"fact": fact}]},
-                "revision_labels": {"source": "remember-tool"},
+                "revision_labels": labels,
             }),
         )
+
+    # ── Hygiene primitives ─────────────────────────────────────────────────
+
+    async def list_memories(
+        self,
+        profile: str,
+        user_id: str | None = None,
+        page_size: int = 100,
+    ) -> list[dict]:
+        """Return all memories for a scope (paginated). Each entry has name,
+        fact, createTime, updateTime, scope, and optional revision labels."""
+        scope = self._scope(profile, user_id)
+        # Vertex API supports filter param: scope.user_id="..." AND scope.profile="..."
+        # Filter syntax: "scope.user_id=\"nick\" AND scope.profile=\"yuki\""
+        flt = f'scope.user_id="{scope["user_id"]}" AND scope.profile="{profile}"'
+        all_items: list[dict] = []
+        page_token: str | None = None
+        for _ in range(20):  # cap pagination at 2000 results to be safe
+            params = f"?pageSize={page_size}&filter={urllib.parse.quote(flt)}"
+            if page_token:
+                params += f"&pageToken={urllib.parse.quote(page_token)}"
+            try:
+                resp = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda p=params: _api("GET", f"{self._base}/{self._parent}/memories{p}", None),
+                )
+            except Exception as exc:
+                logger.warning("Memory: list failed (scope=%r): %s", scope, exc)
+                break
+            all_items.extend(resp.get("memories", []))
+            page_token = resp.get("nextPageToken")
+            if not page_token:
+                break
+        return all_items
+
+    async def delete_memory(self, memory_name: str) -> bool:
+        """Delete a single memory by its full resource name. Returns True on success."""
+        try:
+            await asyncio.get_event_loop().run_in_executor(
+                None, lambda: _api("DELETE", f"{self._base}/{memory_name}", None),
+            )
+            return True
+        except Exception as exc:
+            logger.warning("Memory: delete failed (name=%s): %s", memory_name, exc)
+            return False
+
+    async def purge_expired(self, profile: str, user_id: str | None = None) -> int:
+        """Delete all memories whose `ttl_until` revision label is in the past.
+
+        Runs at session start. Returns the count purged.
+        """
+        items = await self.list_memories(profile, user_id)
+        if not items:
+            return 0
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        expired = []
+        for m in items:
+            # Latest revision's labels carry the ttl_until tag (set at remember time)
+            labels = (m.get("revisionLabels") or {})
+            ttl_until = labels.get("ttl_until")
+            if ttl_until and ttl_until < today:
+                expired.append(m)
+        if not expired:
+            return 0
+        deleted = 0
+        for m in expired:
+            ok = await self.delete_memory(m["name"])
+            if ok:
+                deleted += 1
+        scope_user = user_id or get_active_user()
+        logger.info(
+            "Memory: purged %d expired memories (user=%r profile=%r)",
+            deleted, scope_user, profile,
+        )
+        return deleted
 
     def _generate_memories(self, scope: dict, source: dict) -> None:
         try:
@@ -388,7 +518,7 @@ class FileMemoryBackend:
                     parts.append(text)
         return "\n\n".join(parts)
 
-    async def search(self, profile: str, query: str, user_id: str | None = None, top_k: int = 10) -> list[str]:
+    async def search(self, profile: str, query: str, user_id: str | None = None, top_k: int = 10, with_ids: bool = False) -> list:
         """Naive substring search over the file-backed MEMORY.md as a dev fallback."""
         d = self._profile_dir(profile, user_id)
         f = d / "MEMORY.md"
@@ -397,7 +527,21 @@ class FileMemoryBackend:
         q = query.lower()
         hits = [line.strip().lstrip("- ") for line in f.read_text(encoding="utf-8").splitlines()
                 if line.strip() and q in line.lower()]
-        return hits[:top_k]
+        results = hits[:top_k]
+        if with_ids:
+            # File backend has no real IDs — fabricate from line position so forget can work
+            return [{"memory_id": f"file://{f}#{i}", "fact": fact, "age_days": None} for i, fact in enumerate(results)]
+        return results
+
+    async def list_memories(self, profile: str, user_id: str | None = None, page_size: int = 100) -> list[dict]:
+        return []
+
+    async def delete_memory(self, memory_name: str) -> bool:
+        logger.info("FileMemoryBackend: delete_memory is a no-op (file backend)")
+        return False
+
+    async def purge_expired(self, profile: str, user_id: str | None = None) -> int:
+        return 0
 
     async def save_session(self, profile: str, transcript: list[dict], user_id: str | None = None) -> None:
         if not transcript:
@@ -411,15 +555,18 @@ class FileMemoryBackend:
                 lines.append(f"**{role}:** {content}")
         (d / "last.md").write_text("\n\n".join(lines) + "\n", encoding="utf-8")
 
-    async def remember(self, profile: str, fact: str, user_id: str | None = None) -> None:
+    async def remember(self, profile: str, fact: str, user_id: str | None = None, lifetime_days: int | None = None) -> None:
         d = self._profile_dir(profile, user_id)
         memory_file = d / "MEMORY.md"
         existing = memory_file.read_text(encoding="utf-8") if memory_file.exists() else ""
         if fact not in existing:
+            suffix = ""
+            if lifetime_days and lifetime_days > 0:
+                suffix = f"  <!-- ttl_until={(datetime.now(timezone.utc) + _td(days=lifetime_days)).strftime('%Y-%m-%d')} -->"
             with memory_file.open("a", encoding="utf-8") as f:
                 if not existing:
                     f.write("## What I remember\n")
-                f.write(f"- {fact}\n")
+                f.write(f"- {fact}{suffix}\n")
 
 
 # ── Factory ───────────────────────────────────────────────────────────────────

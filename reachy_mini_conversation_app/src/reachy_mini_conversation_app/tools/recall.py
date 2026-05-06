@@ -28,8 +28,10 @@ class RecallTool(Tool):
         "context on — e.g. the user mentions a name, project, place, or past "
         "event you weren't briefed on at session start. Pass a short search "
         "query (a few keywords or a question). Returns up to 10 matching facts "
-        "ranked by relevance and recency. If nothing comes back, the user has "
-        "no stored memories on that topic — ask them to fill you in."
+        "with their memory_ids (ranked by relevance and recency). The memory_ids "
+        "can be passed to the `forget` tool if you decide a memory is stale or "
+        "incorrect. If nothing comes back, the user has no stored memories on "
+        "that topic — ask them to fill you in."
     )
     parameters_schema: Dict[str, Any] = {
         "type": "object",
@@ -60,11 +62,11 @@ class RecallTool(Tool):
         user_id = getattr(deps, "active_user", None)
 
         try:
-            facts = await memory.search(profile, query, user_id=user_id, top_k=10)
+            matches = await memory.search(profile, query, user_id=user_id, top_k=10, with_ids=True)
         except Exception as exc:
             logger.warning("recall failed: %s", exc)
             return {"status": "error", "message": str(exc)}
 
-        if not facts:
-            return {"status": "no_matches", "query": query, "facts": []}
-        return {"status": "ok", "query": query, "facts": facts, "count": len(facts)}
+        if not matches:
+            return {"status": "no_matches", "query": query, "matches": []}
+        return {"status": "ok", "query": query, "matches": matches, "count": len(matches)}

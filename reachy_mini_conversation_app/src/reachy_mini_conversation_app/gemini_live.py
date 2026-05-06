@@ -696,6 +696,14 @@ class GeminiLiveHandler(AsyncStreamHandler):
         async def _no_memory() -> str:
             return ""
 
+        # Sweep ttl-tagged memories that have expired (fire-and-forget — runs in
+        # parallel with everything else; result logged but not awaited blockingly)
+        if self._memory_enabled and hasattr(self._memory, "purge_expired"):
+            asyncio.create_task(
+                self._memory.purge_expired(profile, user_id=user_id),
+                name="memory-purge-expired",
+            )
+
         memory_context, location_context, mcp_specs = await asyncio.gather(
             self._memory.load_context(profile, user_id=user_id) if self._memory_enabled else _no_memory(),
             asyncio.get_running_loop().run_in_executor(None, get_location_context),
