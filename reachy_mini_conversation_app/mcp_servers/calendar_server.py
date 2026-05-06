@@ -4,7 +4,7 @@ Exposes get_calendar_events tool that queries HA's REST API for events
 across all configured calendars for a given date range.
 
 Environment vars required:
-  HA_URL        - e.g. http://10.0.0.5:8123
+  HA_URL        - e.g. http://homeassistant.local:8123
   HA_MCP_TOKEN  - Long-Lived Access Token
 """
 

@@ -275,7 +275,7 @@ Save the profile. The next session reload will start the server and register its
   {
     "name": "home_assistant",
     "transport": "streamablehttp",
-    "url": "http://10.0.0.5:8123/api/mcp",
+    "url": "http://homeassistant.local:8123/api/mcp",
     "headers": { "Authorization": "Bearer ${HA_MCP_TOKEN}" }
   }
 ]

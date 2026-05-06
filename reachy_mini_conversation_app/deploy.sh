@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-ROBOT_IP="${REACHY_IP:-10.0.0.60}"  # override with: REACHY_IP=x.x.x.x ./deploy.sh
+ROBOT_IP="${REACHY_IP:-reachy-mini.local}"  # override with: REACHY_IP=x.x.x.x ./deploy.sh
 ROBOT_USER="pollen"
 ROBOT_PASS="root"
 ROBOT_REPO="~/dev/reachy_mini_conversation_app/reachy_mini_conversation_app"
