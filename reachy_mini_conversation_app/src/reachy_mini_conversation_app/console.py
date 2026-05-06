@@ -13,6 +13,7 @@ file when available.
 import json
 import os
 import sys
+import threading
 import time
 import asyncio
 import logging
@@ -619,6 +620,16 @@ class LocalStream:
         # If setup is incomplete -> wait until provided via the settings UI
         if not self._is_setup_complete():
             logger.warning("Setup required. Open the app settings page at the robot's IP to configure.")
+            # Speak the URL so the user knows where to point a browser.
+            # Runs in a daemon thread so a stuck speaker never blocks the wizard.
+            try:
+                from reachy_mini_conversation_app.setup_announcer import announce_setup_url
+                threading.Thread(
+                    target=announce_setup_url, kwargs={"port": 7860},
+                    daemon=True, name="setup-announcer",
+                ).start()
+            except Exception as _e:
+                logger.debug("Setup announcer failed to start: %s", _e)
             try:
                 while not self._is_setup_complete():
                     time.sleep(0.2)

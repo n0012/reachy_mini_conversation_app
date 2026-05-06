@@ -81,13 +81,13 @@ For local development with rsync deploys, see the `Deploying` section below.
 
 ### System requirements
 
-Reachy Mini OS already ships with everything needed (`portaudio19-dev`, `libportaudio2`, `python3-pyaudio`). On other Linux systems you'll want:
+Reachy Mini OS already ships with portaudio (`portaudio19-dev`, `libportaudio2`, `python3-pyaudio`) but **not** `espeak-ng` — install it for the spoken setup-URL announcement on first launch:
 
 ```bash
-sudo apt-get install -y portaudio19-dev libportaudio2
+sudo apt-get install -y portaudio19-dev libportaudio2 espeak-ng
 ```
 
-The pip deps (`PyAudio`, `sounddevice`, `scipy`, `edge-impulse-linux`) install automatically from `pyproject.toml`.
+The pip deps (`PyAudio`, `sounddevice`, `scipy`, `edge-impulse-linux`) install automatically from `pyproject.toml`. `espeak-ng` is optional — without it the setup wizard still works, you just won't hear Reachy speak the URL.
 
 ---
 
