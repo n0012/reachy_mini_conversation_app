@@ -6,5 +6,4 @@ camera
 do_nothing
 head_tracking
 move_head
-remember
 identify_user
