@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
-from reachy_mini_conversation_app.vision.head_tracking import HeadTracker, HeadTrackerResult
+from reachy_mini_gemini_live.vision.head_tracking import HeadTracker, HeadTrackerResult
 
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ _HEADER_STRUCT = struct.Struct("!I")
 
 def _build_tracker_backend() -> HeadTracker:
     """Instantiate a concrete head-tracker backend."""
-    from reachy_mini_conversation_app.vision.head_tracking.yolo import YoloHeadTracker
+    from reachy_mini_gemini_live.vision.head_tracking.yolo import YoloHeadTracker
 
     return YoloHeadTracker()
 
@@ -139,12 +139,12 @@ class YoloHeadTrackerProcess:
         self._timed_out_request_id: int | None = None
         self._tracker_name = "yolo"
 
-        module_path = "reachy_mini_conversation_app.vision.head_tracking.yolo_process"
+        module_path = "reachy_mini_gemini_live.vision.head_tracking.yolo_process"
         env = os.environ.copy()
-        package_spec = importlib.util.find_spec("reachy_mini_conversation_app")
+        package_spec = importlib.util.find_spec("reachy_mini_gemini_live")
         package_locations = None if package_spec is None else package_spec.submodule_search_locations
         if not package_locations:
-            raise RuntimeError("Unable to determine the reachy_mini_conversation_app package path")
+            raise RuntimeError("Unable to determine the reachy_mini_gemini_live package path")
         project_src = Path(next(iter(package_locations))).resolve().parent
         existing_pythonpath = env.get("PYTHONPATH")
         env["PYTHONPATH"] = (
@@ -377,7 +377,7 @@ def main() -> int:
     """CLI entrypoint for the head-tracker worker process."""
     if len(sys.argv) != 1:
         print(
-            "usage: python -m reachy_mini_conversation_app.vision.head_tracking.yolo_process",
+            "usage: python -m reachy_mini_gemini_live.vision.head_tracking.yolo_process",
             file=sys.stderr,
         )
         return 2

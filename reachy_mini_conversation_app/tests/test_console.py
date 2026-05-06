@@ -11,9 +11,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from reachy_mini.media.media_manager import MediaBackend
-from reachy_mini_conversation_app.config import GEMINI_AVAILABLE_VOICES, config
-from reachy_mini_conversation_app.console import LocalStream
-from reachy_mini_conversation_app.headless_personality_ui import mount_personality_routes
+from reachy_mini_gemini_live.config import AVAILABLE_VOICES
+from reachy_mini_gemini_live.console import LocalStream
+from reachy_mini_gemini_live.headless_personality_ui import mount_personality_routes
 
 
 def test_clear_audio_queue_prefers_clear_player_when_available() -> None:
@@ -116,106 +116,8 @@ async def test_play_loop_feeds_head_wobbler_with_local_playback_delay() -> None:
     media.push_audio_sample.assert_called_once()
 
 
-def test_backend_config_persists_gemini_selection_and_status(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    """Settings API should persist Gemini backend choice and token."""
-    monkeypatch.setattr(config, "BACKEND_PROVIDER", "openai")
-    monkeypatch.setattr(config, "MODEL_NAME", "gpt-realtime")
-    monkeypatch.setattr(config, "OPENAI_API_KEY", None)
-    monkeypatch.setattr(config, "GEMINI_API_KEY", None)
-    monkeypatch.setenv("BACKEND_PROVIDER", "openai")
-    monkeypatch.setenv("MODEL_NAME", "gpt-realtime")
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-
-    app = FastAPI()
-    robot = SimpleNamespace(media=SimpleNamespace(audio=None, backend=None))
-    stream = LocalStream(MagicMock(), robot, settings_app=app, instance_path=str(tmp_path))
-    stream._init_settings_ui_if_needed()
-
-    client = TestClient(app)
-
-    response = client.post(
-        "/backend_config",
-        json={"backend": "gemini", "api_key": "gem-test-token"},
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["ok"] is True
-    assert data["backend_provider"] == "gemini"
-    assert data["active_backend"] == "openai"
-    assert data["has_gemini_key"] is True
-    assert data["has_key"] is False
-    assert data["can_proceed"] is False
-    assert data["can_proceed_with_openai"] is False
-    assert data["can_proceed_with_gemini"] is True
-    assert data["requires_restart"] is True
-
-    status = client.get("/status")
-    assert status.status_code == 200
-    status_data = status.json()
-    assert status_data["backend_provider"] == "gemini"
-    assert status_data["active_backend"] == "openai"
-    assert status_data["has_gemini_key"] is True
-    assert status_data["can_proceed"] is False
-    assert status_data["can_proceed_with_openai"] is False
-    assert status_data["can_proceed_with_gemini"] is True
-
-    env_text = (tmp_path / ".env").read_text(encoding="utf-8")
-    assert "BACKEND_PROVIDER=gemini" in env_text
-    assert "MODEL_NAME=gemini-3.1-flash-live-preview" in env_text
-    assert "GEMINI_API_KEY=gem-test-token" in env_text
-
-
-def test_backend_config_preserves_explicit_model_override_when_saving_key(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    """Saving credentials should not reset a custom model override."""
-    custom_model = "gpt-4o-realtime-preview-2025-06-03"
-    monkeypatch.setattr(config, "BACKEND_PROVIDER", "openai")
-    monkeypatch.setattr(config, "MODEL_NAME", custom_model)
-    monkeypatch.setattr(config, "OPENAI_API_KEY", None)
-    monkeypatch.setattr(config, "GEMINI_API_KEY", None)
-    monkeypatch.setenv("BACKEND_PROVIDER", "openai")
-    monkeypatch.setenv("MODEL_NAME", custom_model)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-
-    app = FastAPI()
-    robot = SimpleNamespace(media=SimpleNamespace(audio=None, backend=None))
-    stream = LocalStream(MagicMock(), robot, settings_app=app, instance_path=str(tmp_path))
-    stream._init_settings_ui_if_needed()
-
-    client = TestClient(app)
-    response = client.post(
-        "/backend_config",
-        json={"backend": "openai", "api_key": "openai-test-key"},
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["ok"] is True
-    assert data["can_proceed"] is True
-    assert data["can_proceed_with_openai"] is True
-    assert data["can_proceed_with_gemini"] is False
-    assert config.MODEL_NAME == custom_model
-
-    env_text = (tmp_path / ".env").read_text(encoding="utf-8")
-    assert "BACKEND_PROVIDER=openai" in env_text
-    assert f"MODEL_NAME={custom_model}" in env_text
-    assert "MODEL_NAME=gpt-realtime" not in env_text
-    assert "OPENAI_API_KEY=openai-test-key" in env_text
-
-
-def test_headless_personality_routes_return_gemini_voices_when_backend_selected(monkeypatch) -> None:
-    """Headless personality UI should expose Gemini voices when Gemini is selected."""
-    monkeypatch.setattr(config, "BACKEND_PROVIDER", "gemini")
-    monkeypatch.setattr(config, "MODEL_NAME", "gemini-3.1-flash-live-preview")
-
+def test_headless_personality_routes_return_gemini_voices() -> None:
+    """Headless personality UI should expose the Gemini voice catalog."""
     app = FastAPI()
     handler = MagicMock()
     mount_personality_routes(app, handler, lambda: None)
@@ -224,14 +126,14 @@ def test_headless_personality_routes_return_gemini_voices_when_backend_selected(
     response = client.get("/voices")
 
     assert response.status_code == 200
-    assert response.json() == GEMINI_AVAILABLE_VOICES
+    assert response.json() == AVAILABLE_VOICES
 
 
 def test_headless_personality_routes_apply_voice_accepts_query_param() -> None:
     """Headless personality UI should apply a voice change from a POST query param."""
     app = FastAPI()
     handler = MagicMock()
-    handler.change_voice = AsyncMock(return_value="Voice changed to cedar.")
+    handler.change_voice = AsyncMock(return_value="Voice changed to Kore.")
 
     loop = asyncio.new_event_loop()
     started = threading.Event()
@@ -249,11 +151,11 @@ def test_headless_personality_routes_apply_voice_accepts_query_param() -> None:
         mount_personality_routes(app, handler, lambda: loop)
 
         client = TestClient(app)
-        response = client.post("/voices/apply?voice=cedar")
+        response = client.post("/voices/apply?voice=Kore")
 
         assert response.status_code == 200
-        assert response.json() == {"ok": True, "status": "Voice changed to cedar."}
-        handler.change_voice.assert_awaited_once_with("cedar")
+        assert response.json() == {"ok": True, "status": "Voice changed to Kore."}
+        handler.change_voice.assert_awaited_once_with("Kore")
     finally:
         loop.call_soon_threadsafe(loop.stop)
         thread.join(timeout=1.0)

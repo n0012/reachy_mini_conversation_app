@@ -9,11 +9,11 @@ import numpy as np
 import pytest
 from fastrtc import AdditionalOutputs
 
-import reachy_mini_conversation_app.gemini_live as gemini_mod
-from reachy_mini_conversation_app.gemini_live import GeminiLiveHandler
-from reachy_mini_conversation_app.tools.core_tools import ToolDependencies
-from reachy_mini_conversation_app.tools.tool_constants import ToolState
-from reachy_mini_conversation_app.tools.background_tool_manager import ToolNotification
+import reachy_mini_gemini_live.gemini_live as gemini_mod
+from reachy_mini_gemini_live.gemini_live import GeminiLiveHandler
+from reachy_mini_gemini_live.tools.core_tools import ToolDependencies
+from reachy_mini_gemini_live.tools.tool_constants import ToolState
+from reachy_mini_gemini_live.tools.background_tool_manager import ToolNotification
 
 
 def _server_content(**kwargs):

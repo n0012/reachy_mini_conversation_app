@@ -1,6 +1,6 @@
 """Gemini Live voice constants and validation."""
 
-from reachy_mini_conversation_app.config import AVAILABLE_VOICES, DEFAULT_VOICE
+from reachy_mini_gemini_live.config import AVAILABLE_VOICES, DEFAULT_VOICE
 
 
 SUPPORTED_GEMINI_VOICES: set[str] = set(AVAILABLE_VOICES)

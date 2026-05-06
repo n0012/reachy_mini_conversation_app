@@ -13,7 +13,7 @@ set -euo pipefail
 ROBOT_IP="${REACHY_IP:-reachy-mini.local}"  # override with: REACHY_IP=x.x.x.x ./deploy.sh
 ROBOT_USER="pollen"
 ROBOT_PASS="root"
-ROBOT_REPO="~/dev/reachy_mini_conversation_app/reachy_mini_conversation_app"
+ROBOT_REPO="~/dev/reachy_mini_gemini_live/reachy_mini_gemini_live"
 LOCAL_REPO="$(cd "$(dirname "$0")" && pwd)"
 
 SSH="sshpass -p '$ROBOT_PASS' ssh -o StrictHostKeyChecking=no -o PreferredAuthentications=password $ROBOT_USER@$ROBOT_IP"
@@ -55,11 +55,11 @@ fi
 if $DO_RSYNC; then
   echo "→ Rsyncing source..."
   eval "$RSYNC \
-    '$LOCAL_REPO/src/reachy_mini_conversation_app/' \
-    '$ROBOT_USER@$ROBOT_IP:$ROBOT_REPO/src/reachy_mini_conversation_app/'"
+    '$LOCAL_REPO/src/reachy_mini_gemini_live/' \
+    '$ROBOT_USER@$ROBOT_IP:$ROBOT_REPO/src/reachy_mini_gemini_live/'"
 fi
 
-# Sync .env to robot (stored at ~/.reachy_mini/.env)
+# Sync .env to robot (stored at ~/.reachy_mini_gemini_live/.env)
 if $DO_ENV; then
   ENV_FILE="$LOCAL_REPO/.env"
   if [[ ! -f "$ENV_FILE" ]]; then
@@ -67,9 +67,9 @@ if $DO_ENV; then
     exit 1
   fi
   echo "→ Syncing .env..."
-  eval "$SSH 'mkdir -p ~/.reachy_mini'"
-  eval "$SCP '$ENV_FILE' '$ROBOT_USER@$ROBOT_IP:~/.reachy_mini/.env'"
-  echo "  ✓ .env deployed to ~/.reachy_mini/.env"
+  eval "$SSH 'mkdir -p ~/.reachy_mini_gemini_live'"
+  eval "$SCP '$ENV_FILE' '$ROBOT_USER@$ROBOT_IP:~/.reachy_mini_gemini_live/.env'"
+  echo "  ✓ .env deployed to ~/.reachy_mini_gemini_live/.env"
 fi
 
 # Sync profiles/

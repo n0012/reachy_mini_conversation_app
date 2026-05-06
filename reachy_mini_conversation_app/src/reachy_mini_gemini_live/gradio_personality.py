@@ -10,14 +10,14 @@ from pathlib import Path
 
 import gradio as gr
 
-from reachy_mini_conversation_app.config import (
+from reachy_mini_gemini_live.config import (
     LOCKED_PROFILE,
     DEFAULT_PROFILES_DIRECTORY,
     config,
     get_default_voice_for_backend,
     get_available_voices_for_backend,
 )
-from reachy_mini_conversation_app.voices import validate_voice, SUPPORTED_GEMINI_VOICES
+from reachy_mini_gemini_live.voices import validate_voice, SUPPORTED_GEMINI_VOICES
 
 
 class PersonalityUI:

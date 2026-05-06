@@ -94,7 +94,7 @@ Author = "https://www.linkedin.com/in/nicklosier"
 Upstream = "https://huggingface.co/spaces/pollen-robotics/reachy_mini_conversation_app"
 
 [project.scripts]
-reachy-mini-conversation-app = "reachy_mini_conversation_app.main:main"
+reachy-mini-gemini-live = "reachy_mini_gemini_live.main:main"
 
 [tool.uv]
 dependency-metadata = [
@@ -104,7 +104,7 @@ dependency-metadata = [
 ]
 
 [project.entry-points."reachy_mini_apps"]
-reachy_mini_gemini_live = "reachy_mini_conversation_app.main:ReachyMiniConversationApp"
+reachy_mini_gemini_live = "reachy_mini_gemini_live.main:ReachyMiniConversationApp"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
@@ -114,7 +114,7 @@ include-package-data = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-reachy_mini_conversation_app = [
+reachy_mini_gemini_live = [
   "images/*",
   "static/*",
   "models/*.onnx",
@@ -154,7 +154,7 @@ ignore = [
 length-sort = true
 lines-after-imports = 2
 no-lines-before = ["standard-library", "local-folder"]
-known-local-folder = ["reachy_mini_conversation_app"]
+known-local-folder = ["reachy_mini_gemini_live"]
 known-first-party = ["reachy_mini", "reachy_mini_dances_library", "reachy_mini_toolbox"]
 split-on-trailing-comma = true
 

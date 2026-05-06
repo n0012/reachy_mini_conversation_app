@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from reachy_mini_conversation_app.tools.recall import RecallTool
-from reachy_mini_conversation_app.tools.forget import ForgetTool
-from reachy_mini_conversation_app.tools.remember import RememberTool
+from reachy_mini_gemini_live.tools.recall import RecallTool
+from reachy_mini_gemini_live.tools.forget import ForgetTool
+from reachy_mini_gemini_live.tools.remember import RememberTool
 
 
 def _deps(memory=None, memory_enabled=True, profile="yuki", user="nick"):

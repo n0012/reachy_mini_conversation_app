@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from reachy_mini_conversation_app.tools.camera import Camera
-from reachy_mini_conversation_app.tools.core_tools import ToolDependencies
+from reachy_mini_gemini_live.tools.camera import Camera
+from reachy_mini_gemini_live.tools.core_tools import ToolDependencies
 
 
 @pytest.mark.asyncio

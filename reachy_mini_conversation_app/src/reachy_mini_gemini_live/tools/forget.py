@@ -12,7 +12,7 @@ conservative and only forget facts it has high confidence are wrong/stale.
 import logging
 from typing import Any, Dict, List
 
-from reachy_mini_conversation_app.tools.core_tools import Tool, ToolDependencies
+from reachy_mini_gemini_live.tools.core_tools import Tool, ToolDependencies
 
 
 logger = logging.getLogger(__name__)

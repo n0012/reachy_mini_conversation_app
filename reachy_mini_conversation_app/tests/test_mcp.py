@@ -7,13 +7,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from reachy_mini_conversation_app.tools.mcp_adapter import (
+from reachy_mini_gemini_live.tools.mcp_adapter import (
     MCPToolAdapter,
     deregister_mcp_tools,
     register_mcp_tools,
 )
-from reachy_mini_conversation_app.tools.mcp_client import MCPClientPool, MCPToolSpec, _ServerConfig
-from reachy_mini_conversation_app.tools.core_tools import ALL_TOOLS, ALL_TOOL_SPECS
+from reachy_mini_gemini_live.tools.mcp_client import MCPClientPool, MCPToolSpec, _ServerConfig
+from reachy_mini_gemini_live.tools.core_tools import ALL_TOOLS, ALL_TOOL_SPECS
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────

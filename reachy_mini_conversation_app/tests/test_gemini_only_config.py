@@ -5,7 +5,7 @@ import types
 
 import pytest
 
-import reachy_mini_conversation_app.config as config_mod
+import reachy_mini_gemini_live.config as config_mod
 
 
 # ---------------------------------------------------------------------------
@@ -38,7 +38,7 @@ def test_no_openai_api_key_in_config() -> None:
 def test_no_openai_module() -> None:
     """openai_realtime module must not be importable from the package."""
     with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("reachy_mini_conversation_app.openai_realtime")
+        importlib.import_module("reachy_mini_gemini_live.openai_realtime")
 
 
 # ---------------------------------------------------------------------------

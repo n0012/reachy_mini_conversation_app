@@ -1,6 +1,6 @@
 """Spoken setup-URL announcement for first-launch UX.
 
-When the app starts with no `~/.reachy_mini/.env` (setup mode), Reachy speaks
+When the app starts with no `~/.reachy_mini_gemini_live/.env` (setup mode), Reachy speaks
 its IP and port through the speaker so the user knows where to point a browser.
 
 Uses espeak-ng (apt: `sudo apt-get install -y espeak-ng`) since it's tiny,

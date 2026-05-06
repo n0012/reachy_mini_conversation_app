@@ -5,7 +5,7 @@ Recipes for inspecting, migrating, and deleting memories in the Vertex AI Agent 
 All scripts run from the repo root on Mac with the SA key:
 
 ```bash
-cd /path/to/reachy_mini_conversation_app
+cd /path/to/reachy_mini_gemini_live
 export GOOGLE_APPLICATION_CREDENTIALS=reachy-mini-sa-key.json
 ```
 
@@ -23,7 +23,7 @@ os.environ['GCP_PROJECT_ID'] = 'losiern-vibe'
 os.environ['GCP_LOCATION'] = 'us-central1'
 os.environ['VERTEX_REASONING_ENGINE_ID'] = 'YOUR_ENGINE_ID'
 
-from reachy_mini_conversation_app.memory import _api, VertexMemoryBackend
+from reachy_mini_gemini_live.memory import _api, VertexMemoryBackend
 b = VertexMemoryBackend()
 ```
 

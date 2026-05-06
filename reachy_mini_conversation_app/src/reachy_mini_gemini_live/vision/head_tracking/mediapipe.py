@@ -3,7 +3,7 @@
 import numpy as np
 from numpy.typing import NDArray
 
-from reachy_mini_conversation_app.vision.head_tracking import HeadTracker, HeadTrackerResult
+from reachy_mini_gemini_live.vision.head_tracking import HeadTracker, HeadTrackerResult
 
 
 class MediapipeHeadTracker:

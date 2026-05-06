@@ -13,12 +13,12 @@ from typing import Any, Dict, Callable, Optional, Coroutine
 
 from pydantic import Field, BaseModel, PrivateAttr
 
-from reachy_mini_conversation_app.tools.core_tools import (
+from reachy_mini_gemini_live.tools.core_tools import (
     ToolDependencies,
     dispatch_tool_call,
     dispatch_tool_call_with_manager,
 )
-from reachy_mini_conversation_app.tools.tool_constants import ToolState, SystemTool
+from reachy_mini_gemini_live.tools.tool_constants import ToolState, SystemTool
 
 
 logger = logging.getLogger(__name__)

@@ -10,7 +10,7 @@ from numpy.typing import NDArray
 from transformers import AutoProcessor, ProcessorMixin, AutoModelForImageTextToText
 from huggingface_hub import snapshot_download
 
-from reachy_mini_conversation_app.config import config
+from reachy_mini_gemini_live.config import config
 
 
 logger = logging.getLogger(__name__)

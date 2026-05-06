@@ -3,8 +3,8 @@
 import logging
 from typing import Any, Dict
 
-from reachy_mini_conversation_app.tools.core_tools import Tool, ToolDependencies
-from reachy_mini_conversation_app.memory import set_active_user, get_active_user
+from reachy_mini_gemini_live.tools.core_tools import Tool, ToolDependencies
+from reachy_mini_gemini_live.memory import set_active_user, get_active_user
 
 
 logger = logging.getLogger(__name__)

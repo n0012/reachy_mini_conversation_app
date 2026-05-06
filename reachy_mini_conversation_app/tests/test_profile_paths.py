@@ -5,10 +5,10 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
-import reachy_mini_conversation_app.config as config_mod
-import reachy_mini_conversation_app.prompts as prompts_mod
-from reachy_mini_conversation_app.config import DEFAULT_PROFILES_DIRECTORY, config
-from reachy_mini_conversation_app.headless_personality import (
+import reachy_mini_gemini_live.config as config_mod
+import reachy_mini_gemini_live.prompts as prompts_mod
+from reachy_mini_gemini_live.config import DEFAULT_PROFILES_DIRECTORY, config
+from reachy_mini_gemini_live.headless_personality import (
     resolve_profile_dir,
     read_instructions_for,
 )
@@ -81,9 +81,8 @@ def test_prompts_load_from_compact_builtin_profile(monkeypatch: pytest.MonkeyPat
     assert read_instructions_for("mad_scientist_assistant") == expected
 
 
-def test_session_voice_defaults_follow_selected_backend(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Session voice should fall back to the active backend default."""
-    monkeypatch.setattr(config, "BACKEND_PROVIDER", "gemini")
+def test_session_voice_defaults_to_gemini_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Session voice should fall back to the configured Gemini default voice."""
     monkeypatch.setattr(config, "MODEL_NAME", "gemini-3.1-flash-live-preview")
     monkeypatch.setattr(config, "REACHY_MINI_CUSTOM_PROFILE", None)
 

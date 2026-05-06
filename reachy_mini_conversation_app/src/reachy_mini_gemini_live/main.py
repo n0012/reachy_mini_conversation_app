@@ -15,7 +15,7 @@ from fastrtc import Stream
 from gradio.utils import get_space
 
 from reachy_mini import ReachyMini, ReachyMiniApp
-from reachy_mini_conversation_app.utils import (
+from reachy_mini_gemini_live.utils import (
     CameraVisionInitializationError,
     parse_args,
     setup_logger,
@@ -45,8 +45,8 @@ def run(
 ) -> None:
     """Run the Reachy Mini conversation app."""
     # Putting these dependencies here makes the dashboard faster to load when the conversation app is installed
-    from reachy_mini_conversation_app.moves import MovementManager
-    from reachy_mini_conversation_app.config import config, refresh_runtime_config_from_env
+    from reachy_mini_gemini_live.moves import MovementManager
+    from reachy_mini_gemini_live.config import config, refresh_runtime_config_from_env
 
     logger = setup_logger(args.debug)
     logger.info("Starting Reachy Mini Conversation App")
@@ -63,9 +63,9 @@ def run(
         except Exception as e:
             logger.warning("Failed to load instance configuration: %s", e)
 
-    from reachy_mini_conversation_app.console import LocalStream
-    from reachy_mini_conversation_app.tools.core_tools import ToolDependencies
-    from reachy_mini_conversation_app.audio.head_wobbler import HeadWobbler
+    from reachy_mini_gemini_live.console import LocalStream
+    from reachy_mini_gemini_live.tools.core_tools import ToolDependencies
+    from reachy_mini_gemini_live.audio.head_wobbler import HeadWobbler
 
     if args.no_camera and args.head_tracker is not None:
         logger.warning("Head tracking disabled: --no-camera flag is set. Remove --no-camera to enable head tracking.")
@@ -141,7 +141,7 @@ def run(
     )
     logger.debug(f"Chatbot avatar images: {chatbot.avatar_images}")
 
-    from reachy_mini_conversation_app.gemini_live import GeminiLiveHandler
+    from reachy_mini_gemini_live.gemini_live import GeminiLiveHandler
 
     logger.info("Using Gemini Live handler for model: %s", config.MODEL_NAME)
     handler = GeminiLiveHandler(deps, gradio_mode=args.gradio, instance_path=instance_path)
@@ -155,7 +155,7 @@ def run(
             value=os.getenv("GEMINI_API_KEY") if not get_space() else "",
         )
 
-        from reachy_mini_conversation_app.gradio_personality import PersonalityUI
+        from reachy_mini_gemini_live.gradio_personality import PersonalityUI
 
         personality_ui = PersonalityUI()
         personality_ui.create_components()

@@ -59,9 +59,14 @@
 			<div class="feature-card">
 				<span class="icon">🧠</span>
 				<h3>Persistent memory per user</h3>
-				<p>Vertex AI Agent Engine stores facts about each person across sessions. Reachy greets you by name, picks up mid-topic, and keeps each household member's context private.</p>
+				<p>Vertex AI Agent Engine stores facts about each person across sessions. Reachy greets you by name, picks up mid-topic, and keeps each household member's context private. Recency-weighted retrieval surfaces what matters now; Reachy can call <code>recall</code> mid-conversation, or <code>remember(fact, lifetime_days=…)</code> for ephemeral facts that auto-expire.</p>
 				<a href="https://cloud.google.com/vertex-ai/generative-ai/docs/agent-engine/overview" target="_blank" rel="noopener">↗ Vertex AI Agent Engine</a>
 				<a href="https://github.com/Shubhamsaboo/openclaw-vertexai-memorybank" target="_blank" rel="noopener" style="display:block;margin-top:4px">↗ Memory bank pattern</a>
+			</div>
+			<div class="feature-card">
+				<span class="icon">🧹</span>
+				<h3>Memory hygiene</h3>
+				<p>One-click <strong>Compact memories</strong> in the Personality Studio runs an LLM-driven dedup pass over the active user's facts: deletes duplicates, merges overlaps, drops expired ephemerals. Preview (red = delete, teal = merge) before anything is touched, then click Apply to execute exactly what you reviewed.</p>
 			</div>
 			<div class="feature-card">
 				<span class="icon">🔍</span>

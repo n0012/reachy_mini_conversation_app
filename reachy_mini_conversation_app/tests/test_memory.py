@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from reachy_mini_conversation_app.memory import (
+from reachy_mini_gemini_live.memory import (
     FileMemoryBackend,
     MemoryBackend,
     VertexMemoryBackend,
@@ -135,7 +135,7 @@ async def test_users_are_isolated(mem: FileMemoryBackend) -> None:
 
 
 def test_set_and_get_active_user(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from reachy_mini_conversation_app import memory as mem_mod
+    from reachy_mini_gemini_live import memory as mem_mod
     monkeypatch.setattr(mem_mod, "_ACTIVE_USER_FILE", tmp_path / "active_user.json")
     assert mem_mod.get_active_user() == "unknown"
     mem_mod.set_active_user("Nick")

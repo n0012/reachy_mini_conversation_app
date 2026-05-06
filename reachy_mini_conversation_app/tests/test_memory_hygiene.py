@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from reachy_mini_conversation_app.memory import (
+from reachy_mini_gemini_live.memory import (
     FileMemoryBackend,
     RECENCY_ALPHA,
     RECENCY_TAU_DAYS,

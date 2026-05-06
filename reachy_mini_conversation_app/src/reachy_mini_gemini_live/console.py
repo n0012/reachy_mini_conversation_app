@@ -25,7 +25,7 @@ from scipy.signal import resample
 
 from reachy_mini import ReachyMini
 from reachy_mini.media.media_manager import MediaBackend
-from reachy_mini_conversation_app.config import (
+from reachy_mini_gemini_live.config import (
     AUTO_SLEEP_MINUTES_RANGE,
     AVAILABLE_VOICES,
     GEMINI_BACKEND,
@@ -48,11 +48,11 @@ VOICE_STYLES: dict[str, str] = {
     "Schedar": "Even", "Sulafat": "Warm", "Umbriel": "Easy-going",
     "Vindemiatrix": "Gentle", "Zephyr": "Bright", "Zubenelgenubi": "Casual",
 }
-from reachy_mini_conversation_app.headless_personality_ui import mount_personality_routes
+from reachy_mini_gemini_live.headless_personality_ui import mount_personality_routes
 
 
 try:
-    from reachy_mini_conversation_app.gemini_live import GeminiLiveHandler
+    from reachy_mini_gemini_live.gemini_live import GeminiLiveHandler
 except ImportError:
     GeminiLiveHandler = None  # type: ignore[misc,assignment]
 
@@ -222,7 +222,7 @@ class LocalStream:
             return
         selection = (profile or "").strip() or None
         try:
-            from reachy_mini_conversation_app.config import set_custom_profile
+            from reachy_mini_gemini_live.config import set_custom_profile
 
             set_custom_profile(selection)
         except Exception:
@@ -515,7 +515,7 @@ class LocalStream:
         @self._settings_app.get("/ready")
         def _ready() -> JSONResponse:
             try:
-                mod = sys.modules.get("reachy_mini_conversation_app.tools.core_tools")
+                mod = sys.modules.get("reachy_mini_gemini_live.tools.core_tools")
                 ready = bool(getattr(mod, "_TOOLS_INITIALIZED", False)) if mod else False
             except Exception:
                 ready = False
@@ -545,7 +545,7 @@ class LocalStream:
                     except json.JSONDecodeError as je:
                         return JSONResponse({"ok": False, "error": f"Invalid JSON: {je}"}, status_code=400)
 
-                # Persist all env vars to ~/.reachy_mini/.env
+                # Persist all env vars to ~/.reachy_mini_gemini_live/.env
                 updates: dict[str, str] = {
                     "GCP_PROJECT_ID": payload.gcp_project_id.strip(),
                     "GCP_LOCATION": payload.gcp_location.strip() or "us-central1",
@@ -558,7 +558,7 @@ class LocalStream:
 
                 # Set voice in default profile
                 try:
-                    from reachy_mini_conversation_app.config import PROFILES_DIRECTORY
+                    from reachy_mini_gemini_live.config import PROFILES_DIRECTORY
                     voice_file = Path(PROFILES_DIRECTORY) / "default" / "voice.txt"
                     if voice_file.parent.exists() and payload.voice.strip():
                         voice_file.write_text(payload.voice.strip() + "\n", encoding="utf-8")
@@ -581,7 +581,7 @@ class LocalStream:
                             cw = getattr(deps, "camera_worker", None) if deps else None
                             frame = cw.get_latest_frame() if cw is not None else None
                             if frame is not None:
-                                from reachy_mini_conversation_app.camera_frame_encoding import encode_bgr_frame_as_jpeg
+                                from reachy_mini_gemini_live.camera_frame_encoding import encode_bgr_frame_as_jpeg
                                 jpeg = encode_bgr_frame_as_jpeg(frame)
                                 yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
                         except GeneratorExit:
@@ -649,7 +649,7 @@ class LocalStream:
             # Speak the URL so the user knows where to point a browser.
             # Runs in a daemon thread so a stuck speaker never blocks the wizard.
             try:
-                from reachy_mini_conversation_app.setup_announcer import announce_setup_url
+                from reachy_mini_gemini_live.setup_announcer import announce_setup_url
                 threading.Thread(
                     target=announce_setup_url, kwargs={"port": 7860},
                     daemon=True, name="setup-announcer",
@@ -705,7 +705,7 @@ class LocalStream:
         This method:
         - Stops audio recording and playback first
         - Sets the stop event to signal async loops to terminate
-        - Cancels all pending async tasks (openai-handler, record-loop, play-loop)
+        - Cancels all pending async tasks (gemini-handler, record-loop, play-loop)
         """
         logger.info("Stopping LocalStream...")
 

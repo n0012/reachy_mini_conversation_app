@@ -77,7 +77,7 @@ def available_tools_for(selected: str) -> List[str]:
     toggles that have no effect. `remember` and `identify_user` ARE
     toggleable per-profile and remain visible.
     """
-    from reachy_mini_conversation_app.tools.tool_constants import SystemTool
+    from reachy_mini_gemini_live.tools.tool_constants import SystemTool
     # Exclude system tools (always loaded) + internal infrastructure modules
     # that don't define a user-facing Tool subclass.
     excluded = {t.value for t in SystemTool} | {

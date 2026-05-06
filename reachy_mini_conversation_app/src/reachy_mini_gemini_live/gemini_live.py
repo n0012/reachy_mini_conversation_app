@@ -1,7 +1,7 @@
 """Gemini Live API handler for real-time audio conversation.
 
-Drop-in alternative to OpenaiRealtimeHandler. Uses the google-genai SDK's
-Live API for bidirectional audio streaming with function calling support.
+Uses the google-genai SDK's Live API for bidirectional audio streaming with
+function calling support.
 
 Audio formats (per Gemini Live API spec):
   Input:  16-bit PCM, 16 kHz, mono
@@ -28,19 +28,19 @@ from google.genai import types
 from numpy.typing import NDArray
 from scipy.signal import resample
 
-from reachy_mini_conversation_app.config import config
-from reachy_mini_conversation_app.voices import resolve_voice
-from reachy_mini_conversation_app.memory import create_memory_backend, get_active_user
-from reachy_mini_conversation_app.location import get_location_context
-from reachy_mini_conversation_app.tools.mcp_client import MCPClientPool
-from reachy_mini_conversation_app.tools.mcp_adapter import register_mcp_tools, deregister_mcp_tools
-from reachy_mini_conversation_app.prompts import get_session_voice, get_session_instructions, get_session_grounding
-from reachy_mini_conversation_app.tools.core_tools import (
+from reachy_mini_gemini_live.config import config
+from reachy_mini_gemini_live.voices import resolve_voice
+from reachy_mini_gemini_live.memory import create_memory_backend, get_active_user
+from reachy_mini_gemini_live.location import get_location_context
+from reachy_mini_gemini_live.tools.mcp_client import MCPClientPool
+from reachy_mini_gemini_live.tools.mcp_adapter import register_mcp_tools, deregister_mcp_tools
+from reachy_mini_gemini_live.prompts import get_session_voice, get_session_instructions, get_session_grounding
+from reachy_mini_gemini_live.tools.core_tools import (
     ToolDependencies,
     get_tool_specs,
 )
-from reachy_mini_conversation_app.camera_frame_encoding import encode_bgr_frame_as_jpeg
-from reachy_mini_conversation_app.tools.background_tool_manager import (
+from reachy_mini_gemini_live.camera_frame_encoding import encode_bgr_frame_as_jpeg
+from reachy_mini_gemini_live.tools.background_tool_manager import (
     ToolCallRoutine,
     ToolNotification,
     BackgroundToolManager,
@@ -65,17 +65,13 @@ def _profile_memory_enabled(profile: str) -> bool:
     return False
 
 
-def _openai_tool_specs_to_gemini(specs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Convert OpenAI-style tool specs to Gemini function_declarations format.
+def _tool_specs_to_gemini(specs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Convert internal tool specs to Gemini function_declarations format.
 
-    OpenAI format:
-        {"type": "function", "name": "...", "description": "...", "parameters": {...}}
-
-    Gemini format:
+    Internal tool specs use a JSON-Schema-flavored layout:
         {"name": "...", "description": "...", "parameters": {...}}
-
-    The parameters schema is mostly compatible (JSON Schema), but Gemini uses
-    uppercase type names (STRING, NUMBER, OBJECT, ARRAY, BOOLEAN, INTEGER).
+    Gemini accepts the same shape but requires uppercase JSON Schema type
+    names (STRING, NUMBER, OBJECT, ARRAY, BOOLEAN, INTEGER).
     """
     declarations = []
     for spec in specs:
@@ -260,7 +256,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
         session.update equivalent.
         """
         try:
-            from reachy_mini_conversation_app.config import set_custom_profile
+            from reachy_mini_gemini_live.config import set_custom_profile
 
             set_custom_profile(profile)
             self._voice_override = None
@@ -360,7 +356,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
         self._stop_ei_detection()
         logger.info("Waking up (profile=%r)", profile)
         if profile and profile != self.deps.active_profile:
-            from reachy_mini_conversation_app.config import set_custom_profile
+            from reachy_mini_gemini_live.config import set_custom_profile
             set_custom_profile(profile)
             self.deps.active_profile = profile
         self._sleeping = False
@@ -460,9 +456,9 @@ class GeminiLiveHandler(AsyncStreamHandler):
             instructions = f"{instructions}\n\n{memory_context}"
         voice = _resolve_gemini_voice(self._voice_override or get_session_voice())
 
-        # Convert OpenAI-style tool specs to Gemini function declarations
+        # Convert internal tool specs to Gemini function declarations
         tool_specs = get_tool_specs()
-        function_declarations = _openai_tool_specs_to_gemini(tool_specs)
+        function_declarations = _tool_specs_to_gemini(tool_specs)
 
         # google_search is correct for current models (gemini-3.1+).
         # google_search_retrieval is for older models only — docs confirm this.
@@ -1168,4 +1164,5 @@ class GeminiLiveHandler(AsyncStreamHandler):
 
     async def get_available_voices(self) -> list[str]:
         """Return the list of available Gemini voices."""
-        return list(GEMINI_AVAILABLE_VOICES)
+        from reachy_mini_gemini_live.config import AVAILABLE_VOICES
+        return list(AVAILABLE_VOICES)

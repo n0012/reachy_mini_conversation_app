@@ -37,8 +37,11 @@ logger = logging.getLogger(__name__)
 # ── Constants ────────────────────────────────────────────────────────────────
 
 MEMORY_SEARCH_QUERY = "What do I know about this user, their preferences, and our recent conversations?"
-_DEFAULT_MEMORY_DIR = Path.home() / ".reachy_mini" / "memory"
-_ACTIVE_USER_FILE = Path.home() / ".reachy_mini" / "active_user.json"
+
+from reachy_mini_gemini_live.config import REACHY_MINI_DIR  # noqa: E402
+
+_DEFAULT_MEMORY_DIR = REACHY_MINI_DIR / "memory"
+_ACTIVE_USER_FILE = REACHY_MINI_DIR / "active_user.json"
 DEFAULT_USER_ID = "unknown"
 
 # Recency-boost re-ranking parameters. Vertex Memory Bank's :retrieve API
@@ -664,8 +667,8 @@ class FileMemoryBackend:
     """Local Markdown file memory for development without GCP.
 
     Layout:
-      ~/.reachy_mini/memory/{user_id}/{profile}/MEMORY.md  — durable facts
-      ~/.reachy_mini/memory/{user_id}/{profile}/last.md    — most recent session summary
+      ~/.reachy_mini_gemini_live/memory/{user_id}/{profile}/MEMORY.md  — durable facts
+      ~/.reachy_mini_gemini_live/memory/{user_id}/{profile}/last.md    — most recent session summary
     """
 
     def __init__(self, base_dir: Path = _DEFAULT_MEMORY_DIR) -> None:
@@ -756,5 +759,5 @@ def create_memory_backend() -> MemoryBackend:
             return backend
         except Exception as exc:
             logger.warning("Vertex Memory Bank init failed (%s) — falling back to files", exc)
-    logger.info("Memory: file-based fallback (~/.reachy_mini/memory/)")
+    logger.info("Memory: file-based fallback (~/.reachy_mini_gemini_live/memory/)")
     return FileMemoryBackend()

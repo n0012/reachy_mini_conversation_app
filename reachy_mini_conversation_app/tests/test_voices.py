@@ -8,7 +8,7 @@ document the contract before implementation.
 
 import pytest
 
-import reachy_mini_conversation_app.config as config_mod
+import reachy_mini_gemini_live.config as config_mod
 
 
 EXPECTED_VOICES = {"Aoede", "Charon", "Fenrir", "Kore", "Leda", "Orus", "Puck", "Zephyr"}
@@ -47,14 +47,14 @@ def test_available_voices_has_no_openai_names() -> None:
 
 
 def test_validate_voice_accepts_valid() -> None:
-    from reachy_mini_conversation_app.voices import validate_voice
+    from reachy_mini_gemini_live.voices import validate_voice
 
     for v in EXPECTED_VOICES:
         assert validate_voice(v) == v
 
 
 def test_validate_voice_rejects_unknown() -> None:
-    from reachy_mini_conversation_app.voices import validate_voice
+    from reachy_mini_gemini_live.voices import validate_voice
 
     with pytest.raises(ValueError, match="Unknown voice"):
         validate_voice("cedar")  # OpenAI voice — must be rejected
@@ -62,7 +62,7 @@ def test_validate_voice_rejects_unknown() -> None:
 
 def test_validate_voice_case_insensitive_reject() -> None:
     """Case variants of unknown voices should still be rejected."""
-    from reachy_mini_conversation_app.voices import validate_voice
+    from reachy_mini_gemini_live.voices import validate_voice
 
     with pytest.raises(ValueError):
         validate_voice("CEDAR")
@@ -70,7 +70,7 @@ def test_validate_voice_case_insensitive_reject() -> None:
 
 def test_validate_voice_error_message_lists_valid_voices() -> None:
     """The ValueError message should tell the user what voices are valid."""
-    from reachy_mini_conversation_app.voices import validate_voice
+    from reachy_mini_gemini_live.voices import validate_voice
 
     with pytest.raises(ValueError) as exc_info:
         validate_voice("invalid_voice")

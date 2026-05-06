@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-import reachy_mini_conversation_app.prompts as prompts_mod
-from reachy_mini_conversation_app.prompts import get_session_grounding
+import reachy_mini_gemini_live.prompts as prompts_mod
+from reachy_mini_gemini_live.prompts import get_session_grounding
 
 
 @pytest.fixture(autouse=True)

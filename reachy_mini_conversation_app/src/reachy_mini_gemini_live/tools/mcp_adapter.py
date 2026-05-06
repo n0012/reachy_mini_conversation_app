@@ -9,8 +9,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
-from reachy_mini_conversation_app.tools.core_tools import ALL_TOOLS, ALL_TOOL_SPECS, Tool, ToolDependencies
-from reachy_mini_conversation_app.tools.mcp_client import MCPClientPool, MCPToolSpec
+from reachy_mini_gemini_live.tools.core_tools import ALL_TOOLS, ALL_TOOL_SPECS, Tool, ToolDependencies
+from reachy_mini_gemini_live.tools.mcp_client import MCPClientPool, MCPToolSpec
 
 
 logger = logging.getLogger(__name__)

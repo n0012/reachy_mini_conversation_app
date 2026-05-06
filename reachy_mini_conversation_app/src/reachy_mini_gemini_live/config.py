@@ -1,5 +1,6 @@
 import os
 import sys
+import shutil
 import logging
 from pathlib import Path
 from importlib.resources import files
@@ -15,8 +16,47 @@ LOCKED_PROFILE: str | None = None
 PROJECT_ROOT = Path(__file__).parents[2].resolve()
 
 # Stable per-user config directory — survives reinstalls and launcher reboots.
-REACHY_MINI_DIR: Path = Path.home() / ".reachy_mini"
+# Distinct from upstream Pollen's ~/.reachy_mini/ so this fork can coexist.
+REACHY_MINI_DIR: Path = Path.home() / ".reachy_mini_gemini_live"
 REACHY_MINI_ENV_PATH: Path = REACHY_MINI_DIR / ".env"
+_LEGACY_REACHY_MINI_DIR: Path = Path.home() / ".reachy_mini"
+_LEGACY_MIGRATION_FILES = (".env", "service_account.json", "active_user.json")
+_LEGACY_MIGRATION_DIRS = ("memory", "mcp_servers")
+
+
+def _migrate_legacy_dotdir() -> None:
+    """One-time copy of fork-owned files from ~/.reachy_mini/ to the new dotdir.
+
+    Earlier versions of this fork wrote config under ~/.reachy_mini/ — the same
+    dotdir upstream Pollen could one day adopt. We now isolate to
+    ~/.reachy_mini_gemini_live/. If the new dir is missing but the legacy one
+    has our files, copy them over so existing installs keep working without
+    re-running the setup wizard.
+    """
+    if REACHY_MINI_DIR.exists() or not _LEGACY_REACHY_MINI_DIR.is_dir():
+        return
+    has_payload = any(
+        (_LEGACY_REACHY_MINI_DIR / name).exists()
+        for name in (*_LEGACY_MIGRATION_FILES, *_LEGACY_MIGRATION_DIRS)
+    )
+    if not has_payload:
+        return
+    try:
+        REACHY_MINI_DIR.mkdir(parents=True, exist_ok=True)
+        for name in _LEGACY_MIGRATION_FILES:
+            src = _LEGACY_REACHY_MINI_DIR / name
+            if src.is_file():
+                shutil.copy2(src, REACHY_MINI_DIR / name)
+        for name in _LEGACY_MIGRATION_DIRS:
+            src = _LEGACY_REACHY_MINI_DIR / name
+            if src.is_dir():
+                shutil.copytree(src, REACHY_MINI_DIR / name, dirs_exist_ok=True)
+        logger.info("Migrated legacy config from %s to %s", _LEGACY_REACHY_MINI_DIR, REACHY_MINI_DIR)
+    except Exception as exc:
+        logger.warning("Legacy dotdir migration failed: %s", exc)
+
+
+_migrate_legacy_dotdir()
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -57,7 +97,7 @@ else:
 
 def _is_source_checkout_root(root: Path) -> bool:
     """Return whether the given root looks like this project's source checkout."""
-    return (root / "pyproject.toml").is_file() and (root / "src" / "reachy_mini_conversation_app").is_dir()
+    return (root / "pyproject.toml").is_file() and (root / "src" / "reachy_mini_gemini_live").is_dir()
 
 
 def _packaged_profiles_directory() -> Path | None:
@@ -131,7 +171,7 @@ DEFAULT_MODEL_NAME = "gemini-3.1-flash-live-preview"
 DEFAULT_VOICE = "Kore"
 
 GEMINI_BACKEND = "gemini"
-OPENAI_BACKEND = "openai"  # kept for any upstream import compatibility
+
 
 def _resolve_model_name(model_name: str | None = None) -> str:
     """Return a configured model name, falling back to the default Gemini Live model."""

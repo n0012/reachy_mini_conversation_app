@@ -75,7 +75,7 @@ The easiest path is the Reachy Mini launcher dashboard — install this Space di
 
 1. Open the launcher at `http://reachy-mini.local` (or the robot's IP)
 2. Apps → Available → install **`reachy_mini_conversation_app_gemini`**
-3. Click Launch → the in-browser setup wizard at `http://ROBOT_IP:7860` collects your Gemini API key, GCP project, Agent Engine ID, and SA JSON. Stored at `~/.reachy_mini/.env` (survives reinstalls).
+3. Click Launch → the in-browser setup wizard at `http://ROBOT_IP:7860` collects your Gemini API key, GCP project, Agent Engine ID, and SA JSON. Stored at `~/.reachy_mini_gemini_live/.env` (survives reinstalls).
 
 For local development with rsync deploys, see the `Deploying` section below.
 
@@ -168,15 +168,35 @@ and injects them       silently mid-           into memory bank
 into system prompt     conversation
 ```
 
-**Retrieval is semantic, not keyword-based.** At session start, the memory bank runs a vector similarity search across everything known about the current user. Facts that are contextually relevant to recent conversations surface first — the model isn't just reciting a list, it's recalling what matters right now.
+**Retrieval is semantic + recency-weighted.** At session start, the memory bank runs a vector similarity search across everything known about the current user, then re-ranks client-side combining similarity with a recency bonus (`score = similarity + α · exp(−age/τ)`). Facts from yesterday outrank slightly-more-similar facts from six months ago, but old facts still surface when nothing recent matches.
 
 **Key properties:**
 - **Per-user × per-profile scope** — memories partition by both `user_id` and `profile`. A user's memories under a "home assistant" profile are completely separate from their memories under a "work assistant" profile. `identify_user` switches scope mid-conversation so the right context is always active.
 - **Facts, not transcripts** — the memory bank stores extracted facts ("prefers oat milk", "working on bathroom renovation", "daughter's recital is Friday"), not raw conversation logs. Storage is efficient; retrieval is precise.
 - **Enables multi-user assistants** — every household member or team member gets their own persistent context. Reachy greets each person by name, picks up where you left off, and keeps each person's preferences private from others.
-- **Opt-in per profile** — add `enabled=true` to `profiles/{name}/memory.txt` to enable. Profiles without this file run stateless (useful for demo, kiosk, or shared-screen contexts).
+- **Opt-in per profile** — toggle the **Memory** checkbox in the Personality Studio (or set `enabled=true` in `profiles/{name}/memory.txt`). Profiles with memory off run stateless — useful for demo, kiosk, or shared-screen contexts.
 - **Mid-session saves** — every 20 turns, a background save runs so long sessions aren't lost if the robot is powered off.
-- **Explicit `remember` tool** — the model can call `remember("fact")` at any point to explicitly store something, giving it agency over its own long-term knowledge.
+- **Auto-purge on session start** — memories with an expired `ttl_until` revision label are deleted before retrieval runs, so stale ephemeral facts never resurface.
+
+### Memory tools the model can use mid-conversation
+
+These are always-on system tools (not in the per-profile tool toggles) — Reachy decides when to call them:
+
+| Tool | What it does | Example |
+|---|---|---|
+| `remember(fact, lifetime_days=None)` | Store a durable fact, or set `lifetime_days` for an ephemeral one with TTL | `remember("Nick is at JFK airport", lifetime_days=1)` |
+| `recall(query)` | Semantic search of stored memories — returns matching facts with their IDs, used as the prerequisite for `forget` | `recall("favorite drink")` |
+| `forget(memory_ids=[…])` | Delete specific memories by ID. Pre-flight checks reject fabricated IDs and return a "call recall first" error | `forget(["12345"])` |
+
+### Memory hygiene — `🧹 Compact memories` button
+
+In the Personality Studio, click **🧹 Compact memories** to run an LLM-driven dedup pass over the active user's memory store. Two-step with a preview:
+
+1. **Dry run** — `gemini-2.5-flash` reads the current memory list and proposes a plan: which memories to delete (duplicates, contradictions, stale ephemerals) and which to merge (overlapping facts that should be consolidated).
+2. **Preview** — the proposed actions render as cards (red = delete, teal = merge) so you can verify before anything is touched.
+3. **Apply** — clicking Apply executes the previewed plan exactly (no re-analysis, so what you saw is what you get).
+
+Useful when long-running profiles accumulate noisy or contradictory facts over months of use.
 
 ### Use cases unlocked by per-user × per-profile memory
 
@@ -222,21 +242,21 @@ Set `HA_MCP_TOKEN` in the Environment Variables panel. Save the profile. Done.
 
 ### Installing a stdio MCP server (one-time SSH)
 
-stdio servers run a local Python (or Node) script that the app spawns via `subprocess`. The script must live on the robot's filesystem at a stable path. The app convention is `~/.reachy_mini/mcp_servers/` — outside the install dir, so it survives every uninstall + reinstall.
+stdio servers run a local Python (or Node) script that the app spawns via `subprocess`. The script must live on the robot's filesystem at a stable path. The app convention is `~/.reachy_mini_gemini_live/mcp_servers/` — outside the install dir, so it survives every uninstall + reinstall.
 
 **1. Drop the script onto the robot:**
 
 ```bash
 # from your laptop
-ssh pollen@ROBOT_IP "mkdir -p ~/.reachy_mini/mcp_servers"
-scp my_server.py pollen@ROBOT_IP:~/.reachy_mini/mcp_servers/
+ssh pollen@ROBOT_IP "mkdir -p ~/.reachy_mini_gemini_live/mcp_servers"
+scp my_server.py pollen@ROBOT_IP:~/.reachy_mini_gemini_live/mcp_servers/
 ```
 
 The two example scripts in this repo (`mcp_servers/weather_server.py`, `mcp_servers/calendar_server.py`) work as-is:
 
 ```bash
-scp mcp_servers/weather_server.py pollen@ROBOT_IP:~/.reachy_mini/mcp_servers/
-scp mcp_servers/calendar_server.py pollen@ROBOT_IP:~/.reachy_mini/mcp_servers/
+scp mcp_servers/weather_server.py pollen@ROBOT_IP:~/.reachy_mini_gemini_live/mcp_servers/
+scp mcp_servers/calendar_server.py pollen@ROBOT_IP:~/.reachy_mini_gemini_live/mcp_servers/
 ```
 
 If the script needs extra Python dependencies, install them in the shared apps venv:
@@ -252,7 +272,7 @@ In the Personality Studio's **MCP Servers** textarea, append:
 {
   "name": "weather",
   "transport": "stdio",
-  "command": ["/venvs/apps_venv/bin/python3", "/home/pollen/.reachy_mini/mcp_servers/weather_server.py"]
+  "command": ["/venvs/apps_venv/bin/python3", "/home/pollen/.reachy_mini_gemini_live/mcp_servers/weather_server.py"]
 }
 ```
 
@@ -265,12 +285,12 @@ Save the profile. The next session reload will start the server and register its
   {
     "name": "weather",
     "transport": "stdio",
-    "command": ["/venvs/apps_venv/bin/python3", "/home/pollen/.reachy_mini/mcp_servers/weather_server.py"]
+    "command": ["/venvs/apps_venv/bin/python3", "/home/pollen/.reachy_mini_gemini_live/mcp_servers/weather_server.py"]
   },
   {
     "name": "calendar",
     "transport": "stdio",
-    "command": ["/venvs/apps_venv/bin/python3", "/home/pollen/.reachy_mini/mcp_servers/calendar_server.py"]
+    "command": ["/venvs/apps_venv/bin/python3", "/home/pollen/.reachy_mini_gemini_live/mcp_servers/calendar_server.py"]
   },
   {
     "name": "home_assistant",
@@ -354,13 +374,19 @@ The included `reachy-gemini` profile demonstrates all features: identity-first c
 The app runs a headless settings server at `http://ROBOT_IP:7860` — no Gradio mode needed. All management is done from a browser.
 
 ### Setup wizard (first run)
-Guides through API key entry, GCP credentials, voice selection, and Agent Engine ID. Stores everything in `~/.reachy_mini/.env`.
+Guides through API key entry, GCP credentials, voice selection, and Agent Engine ID. Stores everything in `~/.reachy_mini_gemini_live/.env`.
 
 ### Personality Studio
 - Profile picker with live apply and startup-profile persistence
 - Full system prompt editor
 - Voice selector with audio preview
-- Tool checkboxes, MCP server editor, Google Search toggle
+- **Memory** checkbox — turns the Vertex Memory Bank pipeline on/off for this profile
+- **Google Search** checkbox — turns native grounding on/off for this profile
+- **🧹 Compact memories** button — LLM-driven dedup with preview/apply (see Memory hygiene above)
+- Tool toggles for the 9 user-toggleable tools: `camera`, `dance`, `do_nothing`, `head_tracking`, `identify_user`, `move_head`, `play_emotion`, `stop_dance`, `stop_emotion`
+- MCP server editor (JSON), tools.txt raw editor
+
+Always-on system tools (not in the toggle list, included automatically): `task_status`, `task_cancel`, `go_to_sleep`, `remember`, `recall`, `forget`. The memory tools (`remember` / `recall` / `forget`) only execute when the **Memory** checkbox is on.
 
 ### Live Monitor *(new — not in base app)*
 Real-time view of what Reachy sees and hears:
@@ -371,7 +397,7 @@ Real-time view of what Reachy sees and hears:
 
 ### Configuration panel
 - Update GCP credentials without restarting
-- **Behavior** — adjust the auto-sleep idle window (1–60 min, persisted as `REACHY_MINI_AUTO_SLEEP_MINUTES` in `~/.reachy_mini/.env`)
+- **Behavior** — adjust the auto-sleep idle window (1–60 min, persisted as `REACHY_MINI_AUTO_SLEEP_MINUTES` in `~/.reachy_mini_gemini_live/.env`)
 - Environment variable manager — add/edit/delete secrets used by MCP servers (e.g. `HA_MCP_TOKEN`)
 
 ---
@@ -394,7 +420,7 @@ Uses an [Edge Impulse](https://edgeimpulse.com) model trained on real "Hey Reach
 The `AudioImpulseRunner` captures audio directly from the robot's microphone (16 kHz native) in a background thread, completely independent of the Gemini audio pipeline. The capture is resampled 16 → 24 kHz to match the model rate via `scipy.signal.resample_poly`. During sleep, `receive()` returns immediately — zero fastrtc processing overhead.
 
 ### Wake acknowledgement sound
-On detection, Reachy plays a quick rooster crow before reconnecting — instant audible confirmation that "Hey Reachy" was heard. Source: ["Young rooster crowing"](https://commons.wikimedia.org/wiki/File:Young_rooster_crowing.ogg) on Wikimedia Commons, [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) (trimmed, normalized, resampled — see `src/reachy_mini_conversation_app/sounds/CREDITS.md`).
+On detection, Reachy plays a quick rooster crow before reconnecting — instant audible confirmation that "Hey Reachy" was heard. Source: ["Young rooster crowing"](https://commons.wikimedia.org/wiki/File:Young_rooster_crowing.ogg) on Wikimedia Commons, [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) (trimmed, normalized, resampled — see `src/reachy_mini_gemini_live/sounds/CREDITS.md`).
 
 ---
 
@@ -404,19 +430,19 @@ On detection, Reachy plays a quick rooster crow before reconnecting — instant 
 ```bash
 # Push source from Mac
 rsync -avz --exclude='__pycache__' --exclude='*.pyc' --exclude='.git' \
-  reachy_mini_conversation_app/src/reachy_mini_conversation_app/ \
-  pollen@ROBOT_IP:~/dev/reachy_mini_conversation_app/reachy_mini_conversation_app/src/reachy_mini_conversation_app/
+  reachy_mini_gemini_live/src/reachy_mini_gemini_live/ \
+  pollen@ROBOT_IP:~/dev/reachy_mini_gemini_live/reachy_mini_gemini_live/src/reachy_mini_gemini_live/
 
 # Sync profiles
 rsync -avz \
-  reachy_mini_conversation_app/profiles/ \
-  pollen@ROBOT_IP:~/dev/reachy_mini_conversation_app/reachy_mini_conversation_app/profiles/
+  reachy_mini_gemini_live/profiles/ \
+  pollen@ROBOT_IP:~/dev/reachy_mini_gemini_live/reachy_mini_gemini_live/profiles/
 ```
 
 ### Git pull deploy
 ```bash
 sshpass -p 'root' ssh pollen@ROBOT_IP \
-  'cd ~/dev/reachy_mini_conversation_app/reachy_mini_conversation_app && git pull && /venvs/apps_venv/bin/pip install -e . -q'
+  'cd ~/dev/reachy_mini_gemini_live/reachy_mini_gemini_live && git pull && /venvs/apps_venv/bin/pip install -e . -q'
 ```
 
 ### Publishing to HuggingFace
@@ -493,7 +519,7 @@ Set voice per profile in `profiles/{name}/voice.txt`. Reference profile default:
 
 ## Architecture
 
-Key files (paths relative to `src/reachy_mini_conversation_app/`):
+Key files (paths relative to `src/reachy_mini_gemini_live/`):
 
 | File | Role |
 |---|---|
