@@ -256,7 +256,7 @@ The `reachy-gemini` reference profile includes a full Home Assistant integration
 - 📺 Apple TV control
 
 **Setup:**
-1. Enable the [Home Assistant MCP Server](https://developers.home-assistant.io/blog/2025/04/09/mcp-server/) in HA (`Settings → Devices & Services → Add Integration → Model Context Protocol`)
+1. Enable the [Home Assistant MCP Server](https://www.home-assistant.io/integrations/mcp_server/) in HA (`Settings → Devices & Services → Add Integration → Model Context Protocol`)
 2. Create a Long-Lived Access Token in HA (`Profile → Security → Long-Lived Access Tokens`)
 3. Add `HA_MCP_TOKEN=your_token` in the **Environment Variables** panel at `http://ROBOT_IP:7860`
 4. The `reachy-gemini` profile's `mcp_servers.json` handles the rest
@@ -490,7 +490,7 @@ Applied in `gemini_live.py:_handle_tool_result()` to control how the model annou
 | [music-assistant/voice-support](https://github.com/music-assistant/voice-support) | Music Assistant `HassMediaSearchAndPlay` interface |
 | [luisomoreau/hey_reachy](https://huggingface.co/spaces/luisomoreau/hey_reachy_wake_word_detection) | Edge Impulse "Hey Reachy" model trained on real voice samples — linux-aarch64 binary bundled |
 | [Model Context Protocol](https://modelcontextprotocol.io) | MCP spec and Python SDK — protocol layer for external tool servers |
-| [Home Assistant MCP Server](https://developers.home-assistant.io/blog/2025/04/09/mcp-server/) | HA native MCP integration — streamablehttp transport, entity control |
+| [Home Assistant MCP Server](https://www.home-assistant.io/integrations/mcp_server/) | HA native MCP integration — streamablehttp transport, entity control |
 
 ---
 
