@@ -879,36 +879,33 @@ class GeminiLiveHandler(AsyncStreamHandler):
                     stdin=_sp.PIPE, stdout=_sp.PIPE, stderr=_sp.DEVNULL
                 )
 
-                # Read lines from stdout; when we see the device prompt, feed the device_id
-                fed = False
+                # Feed device_id immediately — the binary prompts without a newline
+                # so readline() would block; writing upfront unblocks the read
+                _time.sleep(0.5)  # brief wait for binary to initialize
+                logger.info("Edge Impulse feeding device_id=%s to stdin", device_id)
+                proc.stdin.write(f'{device_id}\n'.encode())
+                proc.stdin.flush()
+
+                # Read classification JSON lines
                 while not stop_event.is_set() and self._sleeping:
                     line = proc.stdout.readline()
                     if not line:
                         break
                     text = line.decode('utf-8', errors='ignore').strip()
-
-                    # Device selection prompt
-                    if not fed and ('type the id' in text.lower() or 'audio device' in text.lower()):
-                        logger.info("Edge Impulse feeding device_id=%s", device_id)
-                        proc.stdin.write(f'{device_id}\n'.encode())
-                        proc.stdin.flush()
-                        fed = True
+                    if not text.startswith('{'):
                         continue
-
-                    # Classification JSON
-                    if fed and text.startswith('{'):
-                        try:
-                            res = _json.loads(text)
-                            score = res.get("result", {}).get("classification", {}).get("hey_reachy", 0.0)
-                            if score > 0.05:
-                                logger.info("Edge Impulse score: %.3f", score)
-                            if score >= self._ei_threshold:
-                                logger.info("Hey Reachy detected! score=%.3f — waking up", score)
-                                self._sleeping = False
-                                asyncio.run_coroutine_threadsafe(self.wake(), loop)
-                                break
-                        except _json.JSONDecodeError:
-                            pass
+                    try:
+                        res = _json.loads(text)
+                        score = res.get("result", {}).get("classification", {}).get("hey_reachy", 0.0)
+                        if score > 0.05:
+                            logger.info("Edge Impulse score: %.3f", score)
+                        if score >= self._ei_threshold:
+                            logger.info("Hey Reachy detected! score=%.3f — waking up", score)
+                            self._sleeping = False
+                            asyncio.run_coroutine_threadsafe(self.wake(), loop)
+                            break
+                    except _json.JSONDecodeError:
+                        pass
 
                 proc.terminate()
                 try:
