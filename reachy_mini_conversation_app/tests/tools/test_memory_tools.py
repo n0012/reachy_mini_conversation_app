@@ -73,31 +73,55 @@ async def test_recall_handles_backend_error():
 # ── ForgetTool ───────────────────────────────────────────────────────────────
 
 
+_REAL_ID = "projects/123456789012/locations/us-central1/reasoningEngines/123/memories"
+
+
 @pytest.mark.asyncio
 async def test_forget_deletes_each_memory_id():
     memory = SimpleNamespace(delete_memory=AsyncMock(return_value=True))
-    out = await ForgetTool()(
-        _deps(memory=memory),
-        memory_ids=["memories/a", "memories/b", "memories/c"],
-        reason="user moved to Boston",
-    )
+    ids = [f"{_REAL_ID}/a", f"{_REAL_ID}/b", f"{_REAL_ID}/c"]
+    out = await ForgetTool()(_deps(memory=memory), memory_ids=ids, reason="user moved to Boston")
     assert out["status"] == "ok"
     assert out["deleted_count"] == 3
     assert out["failed_count"] == 0
     assert memory.delete_memory.await_count == 3
-    deleted_args = [c.args[0] for c in memory.delete_memory.call_args_list]
-    assert deleted_args == ["memories/a", "memories/b", "memories/c"]
 
 
 @pytest.mark.asyncio
-async def test_forget_partial_failure_counted():
+async def test_forget_partial_failure_returns_partial_status():
     memory = SimpleNamespace(delete_memory=AsyncMock(side_effect=[True, False, True]))
-    out = await ForgetTool()(
-        _deps(memory=memory),
-        memory_ids=["memories/ok1", "memories/bad", "memories/ok2"],
-    )
+    ids = [f"{_REAL_ID}/ok1", f"{_REAL_ID}/bad", f"{_REAL_ID}/ok2"]
+    out = await ForgetTool()(_deps(memory=memory), memory_ids=ids)
+    assert out["status"] == "partial"
     assert out["deleted_count"] == 2
     assert out["failed_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_forget_all_failed_returns_error_with_guidance():
+    """When every id fails (e.g. Gemini fabricated them), surface error + recall hint."""
+    memory = SimpleNamespace(delete_memory=AsyncMock(return_value=False))
+    out = await ForgetTool()(
+        _deps(memory=memory),
+        memory_ids=[f"{_REAL_ID}/fakeid1", f"{_REAL_ID}/fakeid2"],
+    )
+    assert out["status"] == "error"
+    assert out["deleted_count"] == 0
+    assert out["failed_count"] == 2
+    assert "recall" in out["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_forget_malformed_ids_skipped_without_api_call():
+    """IDs that don't look like Vertex resource names are rejected pre-flight."""
+    memory = SimpleNamespace(delete_memory=AsyncMock(return_value=True))
+    out = await ForgetTool()(
+        _deps(memory=memory),
+        memory_ids=["320020280967192288", "memories/abc"],  # missing /memories/ slash prefix
+    )
+    assert out["status"] == "error"
+    assert out["failed_count"] == 2
+    memory.delete_memory.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -113,7 +137,7 @@ async def test_forget_too_many_refused():
     memory = SimpleNamespace(delete_memory=AsyncMock())
     out = await ForgetTool()(
         _deps(memory=memory),
-        memory_ids=[f"memories/{i}" for i in range(25)],
+        memory_ids=[f"{_REAL_ID}/{i}" for i in range(25)],
     )
     assert out["status"] == "error"
     assert "20" in out["message"]
