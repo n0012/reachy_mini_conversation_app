@@ -193,31 +193,90 @@ Memory is enabled for the included `reachy-gemini` reference profile.
 
 ## MCP Tool Ecosystem
 
-Each profile can define its own set of MCP servers in `profiles/{name}/mcp_servers.json`. Three transports are supported:
+Each profile defines its own set of MCP servers in `profiles/{name}/mcp_servers.json`. Edit it visually in the **MCP Servers** field of the Personality Studio panel at `http://ROBOT_IP:7860` — no SSH required.
 
-| Transport | Use case |
-|---|---|
-| `stdio` | Local scripts (weather, calendar) |
-| `streamablehttp` | Remote services (Home Assistant) |
-| `sse` | SSE-based MCP servers |
+Three transports are supported:
 
-**Credential injection** — use `${ENV_VAR_NAME}` in header values. The app substitutes environment variables at connection time. Store secrets via the **Environment Variables** panel in the settings UI at `http://ROBOT_IP:7860`.
+| Transport | Install needed? | Use case |
+|---|---|---|
+| `streamablehttp` | None — just the URL | Remote MCP services (Home Assistant, Notion, etc.) |
+| `sse` | None — just the URL | Server-Sent-Events MCP servers |
+| `stdio` | **Script must exist on the robot's filesystem** | Local Python/Node MCP servers |
 
-Example `mcp_servers.json`:
+**Credential injection** — use `${ENV_VAR_NAME}` anywhere in the JSON (header values, URL, env). The app substitutes environment variables at connection time. Store secrets via the **Environment Variables** panel in the settings UI.
+
+### Example: HTTP server (no install required)
+
+```json
+[
+  {
+    "name": "home_assistant",
+    "transport": "streamablehttp",
+    "url": "http://homeassistant.local:8123/api/mcp",
+    "headers": { "Authorization": "Bearer ${HA_MCP_TOKEN}" }
+  }
+]
+```
+
+Set `HA_MCP_TOKEN` in the Environment Variables panel. Save the profile. Done.
+
+### Installing a stdio MCP server (one-time SSH)
+
+stdio servers run a local Python (or Node) script that the app spawns via `subprocess`. The script must live on the robot's filesystem at a stable path. The app convention is `~/.reachy_mini/mcp_servers/` — outside the install dir, so it survives every uninstall + reinstall.
+
+**1. Drop the script onto the robot:**
+
+```bash
+# from your laptop
+ssh pollen@ROBOT_IP "mkdir -p ~/.reachy_mini/mcp_servers"
+scp my_server.py pollen@ROBOT_IP:~/.reachy_mini/mcp_servers/
+```
+
+The two example scripts in this repo (`mcp_servers/weather_server.py`, `mcp_servers/calendar_server.py`) work as-is:
+
+```bash
+scp mcp_servers/weather_server.py pollen@ROBOT_IP:~/.reachy_mini/mcp_servers/
+scp mcp_servers/calendar_server.py pollen@ROBOT_IP:~/.reachy_mini/mcp_servers/
+```
+
+If the script needs extra Python dependencies, install them in the shared apps venv:
+```bash
+ssh pollen@ROBOT_IP "/venvs/apps_venv/bin/pip install <pkg>"
+```
+
+**2. Add the entry to your profile's MCP Servers config (in the UI):**
+
+In the Personality Studio's **MCP Servers** textarea, append:
+
+```json
+{
+  "name": "weather",
+  "transport": "stdio",
+  "command": ["/venvs/apps_venv/bin/python3", "/home/pollen/.reachy_mini/mcp_servers/weather_server.py"]
+}
+```
+
+Save the profile. The next session reload will start the server and register its tools.
+
+### Full example (mixed transports)
+
 ```json
 [
   {
     "name": "weather",
     "transport": "stdio",
-    "command": ["/venvs/apps_venv/bin/python3", "/path/to/weather_server.py"]
+    "command": ["/venvs/apps_venv/bin/python3", "/home/pollen/.reachy_mini/mcp_servers/weather_server.py"]
+  },
+  {
+    "name": "calendar",
+    "transport": "stdio",
+    "command": ["/venvs/apps_venv/bin/python3", "/home/pollen/.reachy_mini/mcp_servers/calendar_server.py"]
   },
   {
     "name": "home_assistant",
     "transport": "streamablehttp",
-    "url": "http://homeassistant.local:8123/api/mcp",
-    "headers": {
-      "Authorization": "Bearer ${HA_MCP_TOKEN}"
-    }
+    "url": "http://10.0.0.5:8123/api/mcp",
+    "headers": { "Authorization": "Bearer ${HA_MCP_TOKEN}" }
   }
 ]
 ```
