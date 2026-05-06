@@ -112,6 +112,10 @@ class MemoryBackend(Protocol):
         """Sweep ttl_until-tagged memories whose date is past. Returns count deleted."""
         ...
 
+    async def compact_memories(self, profile: str, user_id: str | None = None, dry_run: bool = True, max_actions: int = 25) -> dict:
+        """LLM-driven dedup/cleanup pass. Returns {analyzed, proposed, applied, summary}."""
+        ...
+
 
 # ── Vertex AI Memory Bank ─────────────────────────────────────────────────────
 
@@ -474,6 +478,145 @@ class VertexMemoryBackend:
         )
         return deleted
 
+    async def compact_memories(
+        self,
+        profile: str,
+        user_id: str | None = None,
+        dry_run: bool = True,
+        max_actions: int = 25,
+    ) -> dict:
+        """LLM-driven cleanup pass over all stored memories.
+
+        Lists every memory, sends them to Gemini for triage (duplicates,
+        contradictions, stale facts), then either previews the proposed
+        actions (dry_run=True) or applies them. Returns a summary dict:
+            {
+              "analyzed": int,
+              "proposed": [{action, indexes/ids, reason, ...}, ...],
+              "applied": int (only when dry_run=False),
+              "summary": "...",
+              "model": "..."
+            }
+        """
+        items = await self.list_memories(profile, user_id)
+        scope_user = user_id or get_active_user()
+        if len(items) < 5:
+            return {
+                "analyzed": len(items),
+                "proposed": [],
+                "applied": 0,
+                "summary": f"Only {len(items)} memories — nothing to compact.",
+            }
+
+        # Build the analysis prompt
+        memory_lines = []
+        for i, m in enumerate(items):
+            fact = (m.get("fact") or "").replace("\n", " ").strip()
+            ts = (m.get("createTime") or "")[:10] or "unknown"
+            memory_lines.append(f"[{i}] ({ts}) {fact}")
+
+        prompt = (
+            f"You are reviewing {len(items)} stored memories for user '{scope_user}'.\n"
+            "Identify cleanup opportunities. Return STRICT JSON only — no prose, no markdown.\n\n"
+            "MEMORIES:\n"
+            + "\n".join(memory_lines)
+            + "\n\n"
+            "Return this exact shape:\n"
+            "{\n"
+            '  "summary": "<one-sentence overall assessment>",\n'
+            '  "actions": [\n'
+            '    {"type":"delete", "indexes":[7], "reason":"exact duplicate of [3]"},\n'
+            '    {"type":"delete", "indexes":[12], "reason":"superseded by [15] (user moved)"},\n'
+            '    {"type":"merge", "indexes":[5,8], "new_fact":"User has two kids: Maya (8) and Leo (5).", "reason":"two facts about same kids"}\n'
+            "  ]\n"
+            "}\n\n"
+            "RULES:\n"
+            "- Only flag HIGH-CONFIDENCE issues. When in doubt, leave it alone.\n"
+            "- 'delete' permanently removes the listed memories.\n"
+            "- 'merge' deletes the listed and creates a single combined fact.\n"
+            "- Index numbers must come from the [N] markers above. Do not invent.\n"
+            f"- Total deletions across all actions must not exceed {max_actions}.\n"
+            "- If nothing needs cleanup, return {\"summary\":\"clean\",\"actions\":[]}.\n"
+        )
+
+        # Call Gemini for triage
+        from google import genai as _genai
+        api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+        if not api_key:
+            return {"error": "GEMINI_API_KEY not set", "analyzed": len(items), "applied": 0}
+        try:
+            client = _genai.Client(api_key=api_key)
+            model_name = "gemini-2.5-flash"
+            resp = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: client.models.generate_content(model=model_name, contents=prompt),
+            )
+            text = (resp.text or "").strip()
+            # Strip markdown fences if present
+            if text.startswith("```"):
+                text = text.split("```", 2)[1]
+                if text.startswith("json"):
+                    text = text[4:]
+                text = text.strip()
+            plan = json.loads(text)
+        except Exception as exc:
+            logger.warning("Memory: compact LLM call/parse failed: %s", exc)
+            return {"error": f"Analysis failed: {exc}", "analyzed": len(items), "applied": 0}
+
+        actions = plan.get("actions") or []
+        # Annotate actions with the actual fact texts so the UI can display them
+        annotated = []
+        for a in actions:
+            indexes = a.get("indexes") or []
+            facts = []
+            ids = []
+            for i in indexes:
+                if isinstance(i, int) and 0 <= i < len(items):
+                    facts.append(items[i].get("fact", "")[:160])
+                    ids.append(items[i].get("name"))
+            annotated.append({
+                "type": a.get("type"),
+                "reason": a.get("reason", ""),
+                "facts": facts,
+                "memory_ids": ids,
+                "new_fact": a.get("new_fact"),
+            })
+
+        if dry_run:
+            return {
+                "dry_run": True,
+                "analyzed": len(items),
+                "proposed": annotated,
+                "summary": plan.get("summary", ""),
+                "model": model_name,
+            }
+
+        # Apply
+        applied = 0
+        for a in annotated:
+            if applied >= max_actions:
+                break
+            if a["type"] == "merge" and a.get("new_fact"):
+                await self.remember(profile, a["new_fact"], user_id=user_id)
+            for mid in a.get("memory_ids") or []:
+                if mid and await self.delete_memory(mid):
+                    applied += 1
+                    if applied >= max_actions:
+                        break
+
+        logger.info(
+            "Memory: compact applied %d/%d action-items (user=%r profile=%r)",
+            applied, sum(len(a.get("memory_ids") or []) for a in annotated), scope_user, profile,
+        )
+        return {
+            "dry_run": False,
+            "analyzed": len(items),
+            "applied": applied,
+            "proposed": annotated,
+            "summary": plan.get("summary", ""),
+            "model": model_name,
+        }
+
     def _generate_memories(self, scope: dict, source: dict) -> None:
         try:
             resp = _api("POST", self._url("memories:generate"), {
@@ -542,6 +685,9 @@ class FileMemoryBackend:
 
     async def purge_expired(self, profile: str, user_id: str | None = None) -> int:
         return 0
+
+    async def compact_memories(self, profile: str, user_id: str | None = None, dry_run: bool = True, max_actions: int = 25) -> dict:
+        return {"analyzed": 0, "proposed": [], "applied": 0, "summary": "FileMemoryBackend does not support compaction"}
 
     async def save_session(self, profile: str, transcript: list[dict], user_id: str | None = None) -> None:
         if not transcript:

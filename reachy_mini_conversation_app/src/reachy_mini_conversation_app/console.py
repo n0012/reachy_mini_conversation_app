@@ -369,6 +369,31 @@ class LocalStream:
                 self._persist_env_values(updates)
             return JSONResponse({"ok": True, "auto_sleep_minutes": config.AUTO_SLEEP_MINUTES})
 
+        # POST /memory/compact -> LLM-driven cleanup pass over stored memories.
+        # Two-step UX: client first calls dry_run=true to preview, then dry_run=false to apply.
+        @self._settings_app.post("/memory/compact")
+        async def _memory_compact(request: Request) -> JSONResponse:
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+            dry_run = bool(body.get("dry_run", True))
+            handler = getattr(self, "handler", None)
+            backend = getattr(getattr(handler, "deps", None), "memory_backend", None)
+            if backend is None or not getattr(handler, "_memory_enabled", False):
+                return JSONResponse(
+                    {"error": "Memory not enabled for the active profile."},
+                    status_code=400,
+                )
+            profile = handler.deps.active_profile or config.REACHY_MINI_CUSTOM_PROFILE or "default"
+            user_id = getattr(handler.deps, "active_user", None)
+            try:
+                result = await backend.compact_memories(profile, user_id=user_id, dry_run=dry_run)
+            except Exception as e:
+                logger.warning("compact_memories failed: %s", e)
+                return JSONResponse({"error": str(e)}, status_code=500)
+            return JSONResponse(result)
+
         # Keys managed elsewhere — excluded from the custom env var editor
         _MANAGED_KEYS = {
             "GEMINI_API_KEY", "GCP_PROJECT_ID", "GCP_LOCATION",

@@ -481,6 +481,102 @@ async function init() {
       } catch { setStatusMessage(pStatus, "Failed to save.", "error"); }
     });
 
+    // ── Compact memories: dry-run preview → apply ──────────────────────────
+    const compactBtn = document.getElementById("compact-memory-btn");
+    const compactResult = document.getElementById("compact-result");
+    const compactSummary = document.getElementById("compact-summary");
+    const compactList = document.getElementById("compact-actions-list");
+    const compactApplyBar = document.getElementById("compact-apply-bar");
+    const compactApplyBtn = document.getElementById("compact-apply-btn");
+    const compactCancelBtn = document.getElementById("compact-cancel-btn");
+    const compactApplyStatus = document.getElementById("compact-apply-status");
+
+    function renderCompactPlan(result) {
+      compactList.innerHTML = "";
+      const actions = result.proposed || [];
+      compactSummary.textContent = `Analyzed ${result.analyzed} memories. ${result.summary || ""} (${actions.length} action${actions.length === 1 ? "" : "s"} proposed)`;
+      if (!actions.length) {
+        compactApplyBar.classList.add("hidden");
+        return;
+      }
+      for (const a of actions) {
+        const row = document.createElement("div");
+        row.style.cssText = "padding:6px 8px;border-left:2px solid " + (a.type === "delete" ? "#e57373" : "#80cbc4") + ";background:rgba(255,255,255,0.03);border-radius:4px";
+        const head = document.createElement("div");
+        head.style.cssText = "font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:0.5px;color:" + (a.type === "delete" ? "#ef9a9a" : "#80cbc4");
+        head.textContent = `${a.type} — ${a.reason || "no reason"}`;
+        row.appendChild(head);
+        for (const f of (a.facts || [])) {
+          const li = document.createElement("div");
+          li.style.cssText = "color:var(--muted);margin-top:2px";
+          li.textContent = "• " + f;
+          row.appendChild(li);
+        }
+        if (a.new_fact) {
+          const merge = document.createElement("div");
+          merge.style.cssText = "color:var(--accent-2);margin-top:4px";
+          merge.textContent = "→ " + a.new_fact;
+          row.appendChild(merge);
+        }
+        compactList.appendChild(row);
+      }
+      compactApplyBar.classList.remove("hidden");
+    }
+
+    compactBtn.addEventListener("click", async () => {
+      compactBtn.disabled = true;
+      compactBtn.textContent = "Analyzing…";
+      compactResult.classList.remove("hidden");
+      compactSummary.textContent = "Asking Gemini to review your memories…";
+      compactList.innerHTML = "";
+      compactApplyBar.classList.add("hidden");
+      try {
+        const resp = await fetch("/memory/compact", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dry_run: true }),
+        });
+        const data = await resp.json();
+        if (data.error) {
+          compactSummary.textContent = "Error: " + data.error;
+        } else {
+          renderCompactPlan(data);
+        }
+      } catch (e) {
+        compactSummary.textContent = "Failed: " + (e.message || "unknown");
+      } finally {
+        compactBtn.disabled = false;
+        compactBtn.textContent = "🧹 Compact memories";
+      }
+    });
+
+    compactCancelBtn.addEventListener("click", () => {
+      compactResult.classList.add("hidden");
+    });
+
+    compactApplyBtn.addEventListener("click", async () => {
+      compactApplyBtn.disabled = true;
+      compactApplyStatus.textContent = "Applying…";
+      try {
+        const resp = await fetch("/memory/compact", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dry_run: false }),
+        });
+        const data = await resp.json();
+        if (data.error) {
+          compactApplyStatus.textContent = "Error: " + data.error;
+        } else {
+          compactApplyStatus.textContent = `Done — ${data.applied} memor${data.applied === 1 ? "y" : "ies"} updated.`;
+          compactApplyBar.classList.add("hidden");
+        }
+      } catch (e) {
+        compactApplyStatus.textContent = "Failed: " + (e.message || "unknown");
+      } finally {
+        compactApplyBtn.disabled = false;
+      }
+    });
+
     // Configuration panel
     const configDetails = document.getElementById("config-details");
     const cfgStatus = document.getElementById("cfg-status");
