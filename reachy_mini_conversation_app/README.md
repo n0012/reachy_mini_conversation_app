@@ -1,5 +1,5 @@
 ---
-title: Reachy Mini Gemini Edition
+title: Reachy Mini Gemini Live Edition
 emoji: 🎤
 colorFrom: blue
 colorTo: purple
