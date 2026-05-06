@@ -103,6 +103,7 @@ reachy_mini_conversation_app = [
   "static/*",
   "models/*.onnx",
   "models/*.eim",
+  "sounds/*.wav",
   ".env.example",
   "demos/**/*.txt",
   "prompts_library/*.txt",

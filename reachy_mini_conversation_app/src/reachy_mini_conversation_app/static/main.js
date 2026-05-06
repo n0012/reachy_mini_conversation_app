@@ -485,6 +485,7 @@ async function init() {
     const configDetails = document.getElementById("config-details");
     const cfgStatus = document.getElementById("cfg-status");
     show(configDetails, true);
+    const autoSleepInput = document.getElementById("cfg-auto-sleep");
     try {
       const cfgResp = await fetchWithTimeout("/config", {}, 3000);
       if (cfgResp.ok) {
@@ -492,8 +493,37 @@ async function init() {
         document.getElementById("cfg-gcp-project").value = cfg.gcp_project_id || "";
         document.getElementById("cfg-gcp-location").value = cfg.gcp_location || "us-central1";
         document.getElementById("cfg-engine-id").value = cfg.vertex_reasoning_engine_id || "";
+        if (Array.isArray(cfg.auto_sleep_minutes_range) && cfg.auto_sleep_minutes_range.length === 2) {
+          autoSleepInput.min = cfg.auto_sleep_minutes_range[0];
+          autoSleepInput.max = cfg.auto_sleep_minutes_range[1];
+        }
+        autoSleepInput.value = cfg.auto_sleep_minutes ?? 10;
       }
     } catch {}
+
+    document.getElementById("cfg-behavior-save").addEventListener("click", async () => {
+      const status = document.getElementById("cfg-behavior-status");
+      const minutes = parseInt(autoSleepInput.value, 10);
+      const lo = parseInt(autoSleepInput.min, 10) || 1;
+      const hi = parseInt(autoSleepInput.max, 10) || 60;
+      if (!Number.isFinite(minutes) || minutes < lo || minutes > hi) {
+        setStatusMessage(status, `Enter a number between ${lo} and ${hi}.`, "warn"); return;
+      }
+      setStatusMessage(status, "Saving…");
+      try {
+        const resp = await fetch("/config/behavior", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ auto_sleep_minutes: minutes }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.error || "save_failed");
+        autoSleepInput.value = data.auto_sleep_minutes ?? minutes;
+        setStatusMessage(status, "Saved.", "ok");
+      } catch (e) {
+        setStatusMessage(status, `Failed: ${e.message || "unknown error"}`, "error");
+      }
+    });
     document.getElementById("cfg-save").addEventListener("click", async () => {
       const geminiKey = (document.getElementById("cfg-gemini-key").value || "").trim();
       const gcpProject = (document.getElementById("cfg-gcp-project").value || "").trim();

@@ -25,11 +25,13 @@ from scipy.signal import resample
 from reachy_mini import ReachyMini
 from reachy_mini.media.media_manager import MediaBackend
 from reachy_mini_conversation_app.config import (
+    AUTO_SLEEP_MINUTES_RANGE,
     AVAILABLE_VOICES,
     GEMINI_BACKEND,
     LOCKED_PROFILE,
     REACHY_MINI_DIR,
     REACHY_MINI_ENV_PATH,
+    config,
     refresh_runtime_config_from_env,
 )
 
@@ -340,7 +342,31 @@ class LocalStream:
                 "vertex_reasoning_engine_id": os.environ.get("VERTEX_REASONING_ENGINE_ID", ""),
                 "has_credentials": bool(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip()),
                 "google_search_grounding": os.environ.get("GOOGLE_SEARCH_GROUNDING", "") == "1",
+                "auto_sleep_minutes": config.AUTO_SLEEP_MINUTES,
+                "auto_sleep_minutes_range": list(AUTO_SLEEP_MINUTES_RANGE),
             })
+
+        # POST /config/behavior -> update non-credential behavior settings
+        @self._settings_app.post("/config/behavior")
+        async def _set_behavior(request: Request) -> JSONResponse:
+            try:
+                body = await request.json()
+            except Exception:
+                return JSONResponse({"ok": False, "error": "invalid_json"}, status_code=400)
+            updates: dict[str, str] = {}
+            if "auto_sleep_minutes" in body:
+                lo, hi = AUTO_SLEEP_MINUTES_RANGE
+                try:
+                    minutes = max(lo, min(hi, int(body["auto_sleep_minutes"])))
+                except (TypeError, ValueError):
+                    return JSONResponse(
+                        {"ok": False, "error": f"auto_sleep_minutes must be {lo}-{hi}"},
+                        status_code=400,
+                    )
+                updates["REACHY_MINI_AUTO_SLEEP_MINUTES"] = str(minutes)
+            if updates:
+                self._persist_env_values(updates)
+            return JSONResponse({"ok": True, "auto_sleep_minutes": config.AUTO_SLEEP_MINUTES})
 
         # Keys managed elsewhere — excluded from the custom env var editor
         _MANAGED_KEYS = {
@@ -349,6 +375,7 @@ class LocalStream:
             "GOOGLE_SEARCH_GROUNDING", "REACHY_MINI_CUSTOM_PROFILE",
             "REACHY_MINI_PROFILES_OVERRIDE", "REACHY_MINI_EXTERNAL_PROFILES_DIRECTORY",
             "REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY", "MODEL_NAME",
+            "REACHY_MINI_AUTO_SLEEP_MINUTES",
         }
 
         # GET /config/env -> list custom env vars (keys only, values masked)

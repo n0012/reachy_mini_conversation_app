@@ -143,6 +143,8 @@ class GeminiLiveHandler(AsyncStreamHandler):
         )
 
         self.deps = deps
+        # Wire the sleep callback so the go_to_sleep tool can request it
+        self.deps.request_sleep = self.sleep
         self.gradio_mode = gradio_mode
         self.instance_path = instance_path
         self._voice_override: str | None = None
@@ -172,7 +174,6 @@ class GeminiLiveHandler(AsyncStreamHandler):
         self._wake_event.set()  # start awake
         self._hold_loop_done: asyncio.Event = asyncio.Event()
         self._hold_loop_done.set()  # not holding initially
-        _AUTO_SLEEP_SECONDS: int = 600  # 10 minutes
         # Edge Impulse wake word detection (luisomoreau/hey_reachy_wake_word_detection)
         self._ei_thread: object | None = None
         self._ei_stop: "threading.Event | None" = None
@@ -637,13 +638,13 @@ class GeminiLiveHandler(AsyncStreamHandler):
             logger.warning("Error sending tool result to Gemini: %s", e)
 
     async def _auto_sleep_monitor(self) -> None:
-        """Auto-sleep after 10 minutes of no user activity."""
-        _AUTO_SLEEP_SECONDS = 600
+        """Auto-sleep after config.AUTO_SLEEP_MINUTES of no user activity."""
         while self.session and not self._stop_event.is_set() and not self._sleeping:
             await asyncio.sleep(30)  # check every 30s
             idle = asyncio.get_event_loop().time() - self.last_activity_time
-            if idle >= _AUTO_SLEEP_SECONDS:
-                logger.info("Auto-sleep: %.0f seconds idle", idle)
+            timeout_s = config.AUTO_SLEEP_MINUTES * 60
+            if idle >= timeout_s:
+                logger.info("Auto-sleep: %.0fs idle (limit %ds)", idle, timeout_s)
                 await self.sleep()
                 return
 
@@ -859,60 +860,104 @@ class GeminiLiveHandler(AsyncStreamHandler):
         def _run() -> None:
             try:
                 from edge_impulse_linux.audio import AudioImpulseRunner
-                import pyaudio as _pa
+                import sounddevice as sd
 
                 # Ensure model binary is executable
                 mode = os.stat(self._ei_model_path).st_mode
                 if not (mode & stat.S_IXUSR):
                     os.chmod(self._ei_model_path, mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
-                # IMPORTANT: EI SDK uses PyAudio internally — must use PyAudio's device
-                # index, not sounddevice's. They enumerate differently.
-                pa = _pa.PyAudio()
-                device_id = None
-                device_name = "unknown"
-                try:
-                    # First pass: input-only Reachy device
-                    for i in range(pa.get_device_count()):
-                        info = pa.get_device_info_by_index(i)
-                        if info['maxInputChannels'] > 0 and 'reachymini_audio_src' in info['name'].lower():
-                            device_id = i
-                            device_name = info['name']
-                            break
-                    # Fall back to pipewire (any device with input that's not the sink)
-                    if device_id is None:
-                        for i in range(pa.get_device_count()):
-                            info = pa.get_device_info_by_index(i)
-                            if info['maxInputChannels'] > 0 and 'sink' not in info['name'].lower():
-                                device_id = i
-                                device_name = info['name']
-                                break
-                finally:
-                    pa.terminate()
-
-                if device_id is None:
-                    logger.warning("No suitable audio input device found for Edge Impulse")
-                    return
-
-                logger.info("Edge Impulse using PyAudio device %d: %s", device_id, device_name)
-
                 with AudioImpulseRunner(self._ei_model_path) as runner:
                     info = runner.init()
-                    logger.info("Edge Impulse runner loaded: %s / %s",
-                                info['project']['owner'], info['project']['name'])
+                    rate = int(info["model_parameters"]["frequency"])
+                    window_size = int(info["model_parameters"]["input_features_count"])
+                    logger.info(
+                        "Edge Impulse runner loaded: %s / %s (rate=%dHz, window=%d)",
+                        info["project"]["owner"], info["project"]["name"], rate, window_size,
+                    )
 
-                    for res, audio in runner.classifier(device_id=device_id):
-                        if stop_event.is_set() or not self._sleeping:
+                    # Pick input device + native rate. The model wants 24kHz, but
+                    # PortAudio/PyAudio enforce strict rate matching against the
+                    # device's actual capabilities. reachymini_audio_src runs at
+                    # 16kHz natively; we capture there and resample to 24kHz
+                    # before classifying.
+                    devices = sd.query_devices()
+                    device_id = None
+                    device_name = None
+                    native_rate = 0
+                    native_channels = 1
+                    for i, d in enumerate(devices):
+                        if d["max_input_channels"] > 0 and "reachymini_audio_src" in d["name"].lower():
+                            device_id = i
+                            device_name = d["name"]
+                            native_rate = int(d["default_samplerate"])
+                            native_channels = min(2, int(d["max_input_channels"]))
                             break
-                        if "classification" in res["result"]:
-                            score = res["result"]["classification"].get("hey_reachy", 0.0)
-                            if score > 0.05:
-                                logger.info("Edge Impulse score: %.3f", score)
-                            if score >= self._ei_threshold:
-                                logger.info("Hey Reachy detected! score=%.3f — waking up", score)
-                                self._sleeping = False
-                                asyncio.run_coroutine_threadsafe(self.wake(), loop)
+                    if device_id is None:
+                        for i, d in enumerate(devices):
+                            if d["max_input_channels"] > 0:
+                                device_id = i
+                                device_name = d["name"]
+                                native_rate = int(d["default_samplerate"])
+                                native_channels = 1
                                 break
+                    if device_id is None:
+                        logger.warning("No audio input device available — wake word disabled")
+                        return
+
+                    from math import gcd
+                    g = gcd(native_rate, rate)
+                    up, down = rate // g, native_rate // g
+                    logger.info(
+                        "Edge Impulse using sounddevice device %d: %s "
+                        "(native=%dHz/%dch, resampling %d/%d to %dHz)",
+                        device_id, device_name, native_rate, native_channels, up, down, rate,
+                    )
+
+                    from scipy.signal import resample_poly
+
+                    CHUNK_SIZE = 1024
+                    OVERLAP = 0.25
+                    slide = max(1, int(window_size * OVERLAP))
+                    features = np.array([], dtype=np.int16)
+
+                    with sd.RawInputStream(
+                        samplerate=native_rate,
+                        channels=native_channels,
+                        dtype="int16",
+                        blocksize=CHUNK_SIZE,
+                        device=device_id,
+                    ) as stream:
+                        while not stop_event.is_set() and self._sleeping:
+                            audio_bytes, _overflow = stream.read(CHUNK_SIZE)
+                            raw = np.frombuffer(bytes(audio_bytes), dtype=np.int16)
+                            if native_channels > 1:
+                                raw = raw.reshape(-1, native_channels).mean(axis=1).astype(np.int16)
+                            if up != down:
+                                resampled = np.clip(
+                                    resample_poly(raw.astype(np.float32), up, down),
+                                    -32768, 32767,
+                                ).astype(np.int16)
+                            else:
+                                resampled = raw
+                            features = np.concatenate((features, resampled), axis=0)
+                            while len(features) >= window_size:
+                                res = runner.classify(features[:window_size].tolist())
+                                features = features[slide:]
+                                if "classification" in res["result"]:
+                                    score = res["result"]["classification"].get("hey_reachy", 0.0)
+                                    if score > 0.05:
+                                        logger.info("Edge Impulse score: %.3f", score)
+                                    if score >= self._ei_threshold:
+                                        logger.info("Hey Reachy detected! score=%.3f — waking up", score)
+                                        self._sleeping = False
+                                        # Stop capture before playing ack so the device
+                                        # is free for output (sounddevice will re-share
+                                        # via pipewire, but releasing first is cleaner).
+                                        stream.stop()
+                                        self._play_wake_ack()
+                                        asyncio.run_coroutine_threadsafe(self.wake(), loop)
+                                        return
 
             except Exception as e:
                 logger.warning("Edge Impulse detection error: %s", e)
@@ -922,6 +967,73 @@ class GeminiLiveHandler(AsyncStreamHandler):
         self._ei_thread = threading.Thread(target=_run, daemon=True, name="ei-wake-word")
         self._ei_thread.start()
         logger.info("Edge Impulse wake word detection started")
+
+    def _play_wake_ack(self) -> None:
+        """Play the rooster crow wake acknowledgement.
+
+        Sound source: Wikimedia Commons "Young rooster crowing" (CC BY-SA 4.0).
+        See sounds/CREDITS.md for attribution.
+        """
+        try:
+            import sounddevice as sd
+            import wave
+            import pathlib as _pl
+
+            wav_path = _pl.Path(__file__).parent / "sounds" / "rooster_crow.wav"
+            if not wav_path.is_file():
+                logger.warning("Wake ack WAV missing at %s", wav_path)
+                return
+
+            with wave.open(str(wav_path), "rb") as wf:
+                file_rate = wf.getframerate()
+                wav_channels = wf.getnchannels()
+                sampwidth = wf.getsampwidth()
+                if sampwidth != 2:
+                    logger.warning("Wake ack WAV must be 16-bit PCM (got %d bytes/sample)", sampwidth)
+                    return
+                pcm_bytes = wf.readframes(wf.getnframes())
+
+            mono = np.frombuffer(pcm_bytes, dtype=np.int16)
+            if wav_channels > 1:
+                mono = mono.reshape(-1, wav_channels).mean(axis=1).astype(np.int16)
+
+            # Pick output device + its native rate. PortAudio strictly enforces
+            # the device's actual sample rate, so we resample to match.
+            device_id = None
+            device_rate = 0
+            device_channels = 1
+            for i, d in enumerate(sd.query_devices()):
+                if d["max_output_channels"] > 0 and "reachymini_audio_sink" in d["name"].lower():
+                    device_id = i
+                    device_rate = int(d["default_samplerate"])
+                    device_channels = min(2, int(d["max_output_channels"]))
+                    break
+            if device_id is None:
+                try:
+                    out = sd.default.device[1]
+                    if out is not None and out >= 0:
+                        d = sd.query_devices(out)
+                        device_id = out
+                        device_rate = int(d["default_samplerate"])
+                        device_channels = min(2, int(d["max_output_channels"]))
+                except Exception:
+                    pass
+            if device_id is None or device_rate <= 0:
+                logger.warning("No usable output device for wake ack")
+                return
+
+            if file_rate != device_rate:
+                from math import gcd
+                from scipy.signal import resample_poly
+                g = gcd(file_rate, device_rate)
+                up, down = device_rate // g, file_rate // g
+                resampled = resample_poly(mono.astype(np.float32), up, down)
+                mono = np.clip(resampled, -32768, 32767).astype(np.int16)
+
+            audio = np.repeat(mono[:, None], device_channels, axis=1) if device_channels > 1 else mono
+            sd.play(audio, samplerate=device_rate, device=device_id, blocking=True)
+        except Exception as e:
+            logger.warning("Failed to play wake ack: %s", e)
 
     def _stop_ei_detection(self) -> None:
         """Stop the Edge Impulse wake word detection thread."""

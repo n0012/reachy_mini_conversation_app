@@ -14,7 +14,7 @@ ROBOT_IP="${REACHY_IP:-10.0.0.60}"  # override with: REACHY_IP=x.x.x.x ./deploy.
 ROBOT_USER="pollen"
 ROBOT_PASS="root"
 ROBOT_REPO="~/dev/reachy_mini_conversation_app/reachy_mini_conversation_app"
-LOCAL_REPO="$(cd "$(dirname "$0")/reachy_mini_conversation_app" && pwd)"
+LOCAL_REPO="$(cd "$(dirname "$0")" && pwd)"
 
 SSH="sshpass -p '$ROBOT_PASS' ssh -o StrictHostKeyChecking=no -o PreferredAuthentications=password $ROBOT_USER@$ROBOT_IP"
 SCP="sshpass -p '$ROBOT_PASS' scp -o StrictHostKeyChecking=no -o PreferredAuthentications=password"

@@ -208,6 +208,20 @@
           </div>
 
           <div style="border-top:1px solid var(--border);margin-top:18px;padding-top:14px">
+            <p class="eyebrow" style="margin:0 0 4px">Behavior</p>
+            <p class="muted small" style="margin:0 0 12px">Idle timeout before Reachy goes to sleep on its own. Wake with "Hey Reachy".</p>
+            <div class="row" style="display:flex;gap:8px;align-items:center">
+              <label for="cfg-auto-sleep" style="margin:0;flex:1">Auto-sleep after</label>
+              <input id="cfg-auto-sleep" type="number" min="1" max="60" step="1" style="width:90px;text-align:right" />
+              <span class="muted small">minutes</span>
+            </div>
+            <div class="actions" style="margin-top:10px">
+              <button id="cfg-behavior-save">Save behavior</button>
+              <p id="cfg-behavior-status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid var(--border);margin-top:18px;padding-top:14px">
             <p class="eyebrow" style="margin:0 0 4px">Environment Variables</p>
             <p class="muted small" style="margin:0 0 12px">Tokens and secrets referenced by MCP servers via <code>${VAR_NAME}</code></p>
             <div id="env-vars-list" style="display:flex;flex-direction:column;gap:8px"></div>

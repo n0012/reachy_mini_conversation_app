@@ -104,6 +104,20 @@ def _resolve_model_name(model_name: str | None = None) -> str:
     return candidate if candidate else DEFAULT_MODEL_NAME
 
 
+DEFAULT_AUTO_SLEEP_MINUTES = 10
+AUTO_SLEEP_MINUTES_RANGE = (1, 60)
+
+
+def _resolve_auto_sleep_minutes(value: str | None) -> int:
+    """Parse the auto-sleep minutes env var, clamped to AUTO_SLEEP_MINUTES_RANGE."""
+    try:
+        minutes = int((value or "").strip()) if value else DEFAULT_AUTO_SLEEP_MINUTES
+    except ValueError:
+        minutes = DEFAULT_AUTO_SLEEP_MINUTES
+    lo, hi = AUTO_SLEEP_MINUTES_RANGE
+    return max(lo, min(hi, minutes))
+
+
 def _env_flag(name: str, default: bool = False) -> bool:
     """Parse a boolean environment flag.
 
@@ -218,6 +232,7 @@ class Config:
     TOOLS_DIRECTORY = Path(_tools_directory_env) if _tools_directory_env else None
     AUTOLOAD_EXTERNAL_TOOLS = _env_flag("AUTOLOAD_EXTERNAL_TOOLS", default=False)
     REACHY_MINI_CUSTOM_PROFILE = LOCKED_PROFILE or os.getenv("REACHY_MINI_CUSTOM_PROFILE")
+    AUTO_SLEEP_MINUTES = _resolve_auto_sleep_minutes(os.getenv("REACHY_MINI_AUTO_SLEEP_MINUTES"))
 
     logger.debug(f"Custom Profile: {REACHY_MINI_CUSTOM_PROFILE}")
 
@@ -289,6 +304,7 @@ def refresh_runtime_config_from_env() -> None:
     config.GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     config.MODEL_NAME = _resolve_model_name(os.getenv("MODEL_NAME"))
     config.REACHY_MINI_CUSTOM_PROFILE = LOCKED_PROFILE or os.getenv("REACHY_MINI_CUSTOM_PROFILE")
+    config.AUTO_SLEEP_MINUTES = _resolve_auto_sleep_minutes(os.getenv("REACHY_MINI_AUTO_SLEEP_MINUTES"))
     override = os.getenv("REACHY_MINI_PROFILES_OVERRIDE")
     if override:
         p = Path(override).expanduser().resolve()

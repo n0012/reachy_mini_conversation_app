@@ -69,6 +69,7 @@ class ToolDependencies:
     memory_backend: Any | None = None  # MemoryBackend from memory.py
     active_profile: str | None = None  # Current profile name for memory scoping
     active_user: str | None = None     # Current user_id for memory scoping (multi-user homes)
+    request_sleep: Any | None = None   # Callable[[], Awaitable[None]] — set by handler
 
 
 # Tool base class
