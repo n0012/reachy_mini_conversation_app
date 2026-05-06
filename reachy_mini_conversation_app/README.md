@@ -587,3 +587,4 @@ Applied in `gemini_live.py:_handle_tool_result()` to control how the model annou
 ## License
 
 Apache 2.0
+
