@@ -40,13 +40,47 @@ def _get_local_ip() -> str:
             return "the robot's IP"
 
 
+def _ensure_espeak_ng() -> bool:
+    """Ensure espeak-ng is installed. Returns True if available, False otherwise.
+
+    HF Spaces' `packages.txt` is not honored for `sdk: static` apps, so the
+    Reachy Mini launcher's pip-only install can't pre-install apt deps. As a
+    workaround we one-shot `sudo apt-get install` here. The pollen user on
+    Reachy Mini OS has passwordless sudo (factory default), so this is silent
+    and takes ~10s. On systems where sudo prompts for a password, `sudo -n`
+    fails fast and we gracefully no-op.
+    """
+    if shutil.which("espeak-ng") is not None:
+        return True
+    if shutil.which("sudo") is None or shutil.which("apt-get") is None:
+        logger.info("espeak-ng missing and no sudo/apt-get to install it — announcement silent.")
+        return False
+    logger.info("espeak-ng missing — one-shot install via sudo apt-get...")
+    try:
+        result = subprocess.run(
+            ["sudo", "-n", "apt-get", "install", "-y", "-q", "espeak-ng"],
+            capture_output=True, timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning("espeak-ng install timed out — likely sudo password prompt; staying silent.")
+        return False
+    except Exception as e:
+        logger.warning("espeak-ng install errored: %s", e)
+        return False
+    if result.returncode == 0 and shutil.which("espeak-ng") is not None:
+        logger.info("espeak-ng installed.")
+        return True
+    logger.warning(
+        "espeak-ng install failed (rc=%d): %s",
+        result.returncode,
+        result.stderr.decode("utf-8", errors="ignore")[:300],
+    )
+    return False
+
+
 def _synthesize_to_wav(text: str) -> bytes | None:
     """Return WAV bytes for `text` via espeak-ng, or None if unavailable."""
-    if shutil.which("espeak-ng") is None:
-        logger.info(
-            "espeak-ng not installed — setup announcement will be silent. "
-            "Install: sudo apt-get install -y espeak-ng"
-        )
+    if not _ensure_espeak_ng():
         return None
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         wav_path = tmp.name

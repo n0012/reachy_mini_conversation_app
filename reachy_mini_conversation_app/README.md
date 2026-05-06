@@ -81,13 +81,16 @@ For local development with rsync deploys, see the `Deploying` section below.
 
 ### System requirements
 
-Reachy Mini OS already ships with portaudio (`portaudio19-dev`, `libportaudio2`, `python3-pyaudio`) but **not** `espeak-ng` — install it for the spoken setup-URL announcement on first launch:
+Reachy Mini OS already ships with portaudio (`portaudio19-dev`, `libportaudio2`, `python3-pyaudio`). The pip deps (`PyAudio`, `sounddevice`, `scipy`, `edge-impulse-linux`) install automatically from `pyproject.toml`.
 
+`espeak-ng` (used for the spoken setup-URL announcement on first launch) is **auto-installed via `sudo apt-get install`** on first startup if missing — the `pollen` user on Reachy Mini OS has passwordless sudo so this is silent. On other Linux hosts where sudo prompts, the announcement gracefully no-ops and the wizard still works normally.
+
+For non-Reachy hosts (or if you prefer explicit control):
 ```bash
 sudo apt-get install -y portaudio19-dev libportaudio2 espeak-ng
 ```
 
-The pip deps (`PyAudio`, `sounddevice`, `scipy`, `edge-impulse-linux`) install automatically from `pyproject.toml`. `espeak-ng` is optional — without it the setup wizard still works, you just won't hear Reachy speak the URL.
+`packages.txt` lists the same apt deps for HuggingFace Spaces' build pipeline — note that **it's only honored for Gradio/Streamlit SDKs**, not `sdk: static`. The Reachy Mini launcher uses `static`, hence the runtime auto-install fallback.
 
 ---
 
