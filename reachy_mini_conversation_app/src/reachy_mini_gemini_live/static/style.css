@@ -532,11 +532,43 @@ button.ghost:hover { border-color: rgba(94, 240, 193, 0.4); }
 @media (max-width: 760px) {
   .hero h1 { font-size: 26px; }
   .privacy-notice { padding: 10px 12px; }
+  .container { padding: 0 14px 24px; margin: 3vh auto; }
+  .panel { padding: 14px; }
   .backend-choice-grid { grid-template-columns: 1fr; }
+
+  /* Stack label + content for normal rows */
   .row { grid-template-columns: 1fr; }
-  #personality-panel .row:first-of-type { grid-template-columns: 1fr; }
-  button { width: 100%; justify-content: center; }
-  .actions { flex-direction: column; align-items: flex-start; }
+
+  /* Row buttons stay compact (only .actions buttons go full-width) */
+  .actions button { width: 100%; justify-content: center; }
+
+  /* Profile row: label & select full-width, 3 buttons flex side-by-side */
+  #personality-panel .row-top {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  #personality-panel .row-top > label { width: 100%; margin: 0; }
+  #personality-panel .row-top > select { flex: 1 1 100%; }
+  #personality-panel .row-top > button { flex: 1; min-width: 0; font-size: 12px; padding: 7px 8px; }
+
+  /* Voice row: label & select full-width, Apply + Preview side-by-side */
+  #personality-panel .row-voice,
+  #setup-panel .row-voice {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  #personality-panel .row-voice > label,
+  #setup-panel .row-voice > label { width: 100%; margin: 0; }
+  #personality-panel .row-voice > select,
+  #setup-panel .row-voice > select { flex: 1 1 100%; }
+  #personality-panel .row-voice > button,
+  #setup-panel .row-voice > button { flex: 1; min-width: 0; }
+
+  .actions { flex-direction: column; align-items: stretch; }
   .monitor-grid { grid-template-columns: 1fr; }
   #transcript-log { max-height: 200px; }
 }

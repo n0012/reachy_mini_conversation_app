@@ -267,7 +267,7 @@ class Config:
     _tools_directory_env = os.getenv("REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY")
     TOOLS_DIRECTORY = Path(_tools_directory_env) if _tools_directory_env else None
     AUTOLOAD_EXTERNAL_TOOLS = _env_flag("AUTOLOAD_EXTERNAL_TOOLS", default=False)
-    REACHY_MINI_CUSTOM_PROFILE = LOCKED_PROFILE or os.getenv("REACHY_MINI_CUSTOM_PROFILE")
+    REACHY_MINI_CUSTOM_PROFILE = LOCKED_PROFILE or os.getenv("REACHY_MINI_CUSTOM_PROFILE") or "reachy-gemini"
     AUTO_SLEEP_MINUTES = _resolve_auto_sleep_minutes(os.getenv("REACHY_MINI_AUTO_SLEEP_MINUTES"))
 
     logger.debug(f"Custom Profile: {REACHY_MINI_CUSTOM_PROFILE}")
