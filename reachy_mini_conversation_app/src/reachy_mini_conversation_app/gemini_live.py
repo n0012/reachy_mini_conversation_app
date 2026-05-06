@@ -866,14 +866,23 @@ class GeminiLiveHandler(AsyncStreamHandler):
                     info = runner.init()
                     logger.info("Edge Impulse runner loaded: %s/%s",
                                 info['project']['owner'], info['project']['name'])
-                    # Find Reachy Mini audio device; fall back to system default
+                    # Find Reachy Mini audio device by name
                     import sounddevice as _sd
+                    import time as _time
                     device_id = None
                     for i, d in enumerate(_sd.query_devices()):
                         if d['max_input_channels'] > 0 and 'reachy' in d['name'].lower():
                             device_id = i
                             break
-                    logger.info("Edge Impulse using audio device: %s (id=%s)", device_id, device_id)
+                    logger.info("Edge Impulse using audio device id=%s", device_id)
+                    # Binary prompts for device interactively — feed it directly to stdin
+                    if device_id is not None and hasattr(runner, 'runner') and runner.runner:
+                        _time.sleep(0.2)
+                        try:
+                            runner.runner.stdin.write(f'{device_id}\n'.encode())
+                            runner.runner.stdin.flush()
+                        except Exception as _e:
+                            logger.debug("EI stdin write: %s", _e)
                     for res, _ in runner.classifier(device_id=device_id):
                         if stop_event.is_set() or not self._sleeping:
                             break
