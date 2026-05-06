@@ -45,7 +45,10 @@ echo "→ Deploying to $ROBOT_USER@$ROBOT_IP"
 # Git pull + pip install (standard deploy)
 if $DO_GIT; then
   echo "→ Pulling latest from git..."
-  eval "$SSH 'cd $ROBOT_REPO && git pull && /venvs/apps_venv/bin/pip install -e . -q && echo Done'"
+  eval "$SSH 'cd $ROBOT_REPO && git pull && \
+    sudo apt-get install -y -q portaudio19-dev python3-pyaudio 2>/dev/null || true && \
+    /venvs/apps_venv/bin/pip install -q pyaudio edge-impulse-linux && \
+    /venvs/apps_venv/bin/pip install -e . -q && echo Done'"
 fi
 
 # Rsync local source (fast dev iteration — no git push needed)
