@@ -320,19 +320,9 @@ After 10 minutes of no conversation, Reachy automatically:
 3. Switches to offline wake word detection (zero cloud cost)
 
 ### Wake word
-Uses [OpenWakeWord](https://github.com/dscripka/openWakeWord) for offline detection. Default model: `hey_jarvis_v0.1.onnx` (ships with OWW).
+Uses an [Edge Impulse](https://edgeimpulse.com) model trained on real "Hey Reachy" voice samples, from [luisomoreau/hey_reachy_wake_word_detection](https://huggingface.co/spaces/luisomoreau/hey_reachy_wake_word_detection). The `linux-aarch64` binary is bundled — no training required.
 
-**CPU optimization** — a VAD pre-filter skips neural network inference during silence, reducing idle CPU load by ~33% on the robot's ARM64 processor.
-
-### Training a custom "Hey Reachy" wake word
-
-A Colab training notebook is included: [`hey_reachy_training.ipynb`](https://github.com/n0012/reachy_mini_conversation_app/blob/main/reachy_mini_conversation_app/oww_training/hey_reachy_training.ipynb)
-
-See **[docs/wake_word_training.md](docs/wake_word_training.md)** for the full guide, including:
-- A100 GPU setup on Google Colab Enterprise
-- Generating synthetic training data with Piper TTS
-- Generating voice samples with Gemini 2.5 Flash TTS across all 20 Gemini voices
-- Deploying the trained ONNX model to the robot
+The `AudioImpulseRunner` captures audio directly from the robot's microphone in a background thread, completely independent of the Gemini audio pipeline. During sleep, `receive()` returns immediately — zero fastrtc processing overhead.
 
 ---
 
@@ -490,6 +480,7 @@ Applied in `gemini_live.py:_handle_tool_result()` to control how the model annou
 | [google-gemini/cookbook: Live API tools](https://github.com/google-gemini/cookbook/blob/main/quickstarts/Get_started_LiveAPI_tools.ipynb) | `google_search` + `function_declarations` format |
 | [ai.google.dev: Live API tools](https://ai.google.dev/gemini-api/docs/live-api/tools) | Tool support matrix, scheduling hints |
 | [music-assistant/voice-support](https://github.com/music-assistant/voice-support) | Music Assistant `HassMediaSearchAndPlay` interface |
+| [luisomoreau/hey_reachy_wake_word_detection](https://huggingface.co/spaces/luisomoreau/hey_reachy_wake_word_detection) | Edge Impulse "Hey Reachy" model trained on real voice samples — linux-aarch64 binary bundled |
 | [Model Context Protocol](https://modelcontextprotocol.io) | MCP spec and Python SDK — protocol layer for external tool servers |
 | [Home Assistant MCP Server](https://developers.home-assistant.io/blog/2025/04/09/mcp-server/) | HA native MCP integration — streamablehttp transport, entity control |
 
