@@ -866,16 +866,26 @@ class GeminiLiveHandler(AsyncStreamHandler):
                 if not (mode & stat.S_IXUSR):
                     os.chmod(self._ei_model_path, mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
-                # Find Reachy Mini audio device — mirrors luisomoreau's device selection
-                device_id = None
+                # Find the correct input device — prefer reachymini_audio_src (input only),
+                # fall back to pipewire which routes all audio and supports 16kHz
                 devices = _sd.query_devices()
+                device_id = None
+                # First pass: exact input-only Reachy device
                 for i, device in enumerate(devices):
-                    if 'Reachy Mini Audio' in device['name'] or 'reachymini' in device['name'].lower():
-                        if device['max_input_channels'] > 0:
+                    name = device['name'].lower()
+                    if 'reachymini_audio_src' in name and device['max_input_channels'] > 0:
+                        device_id = i
+                        break
+                # Second pass: any reachy input device
+                if device_id is None:
+                    for i, device in enumerate(devices):
+                        name = device['name'].lower()
+                        if 'reachy' in name and device['max_input_channels'] > 0:
                             device_id = i
                             break
+                # Fall back to pipewire (device 0) — supports 16kHz, routes mic input
                 if device_id is None:
-                    device_id = _sd.default.device[0]
+                    device_id = 0
 
                 device_name = devices[device_id]['name'] if device_id < len(devices) else 'unknown'
                 logger.info("Edge Impulse using audio device %d: %s", device_id, device_name)
