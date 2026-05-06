@@ -484,6 +484,7 @@ class VertexMemoryBackend:
         user_id: str | None = None,
         dry_run: bool = True,
         max_actions: int = 25,
+        plan: list[dict] | None = None,
     ) -> dict:
         """LLM-driven cleanup pass over all stored memories.
 
@@ -498,6 +499,32 @@ class VertexMemoryBackend:
               "model": "..."
             }
         """
+        # If a pre-computed plan is passed (from a prior dry-run), skip the
+        # LLM call and just execute it. Avoids the race where Apply re-runs
+        # analysis after the previous Apply already cleaned things up.
+        if plan is not None and not dry_run:
+            applied = 0
+            for a in plan:
+                if applied >= max_actions:
+                    break
+                if a.get("type") == "merge" and a.get("new_fact"):
+                    await self.remember(profile, a["new_fact"], user_id=user_id)
+                for mid in a.get("memory_ids") or []:
+                    if mid and await self.delete_memory(mid):
+                        applied += 1
+                        if applied >= max_actions:
+                            break
+            scope_user = user_id or get_active_user()
+            logger.info(
+                "Memory: compact applied %d items from supplied plan (user=%r profile=%r)",
+                applied, scope_user, profile,
+            )
+            return {
+                "dry_run": False,
+                "applied": applied,
+                "summary": f"Applied {applied} deletion(s) from previously-shown plan",
+            }
+
         items = await self.list_memories(profile, user_id)
         scope_user = user_id or get_active_user()
         if len(items) < 5:

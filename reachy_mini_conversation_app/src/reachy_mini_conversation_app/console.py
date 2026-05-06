@@ -387,8 +387,9 @@ class LocalStream:
                 )
             profile = handler.deps.active_profile or config.REACHY_MINI_CUSTOM_PROFILE or "default"
             user_id = getattr(handler.deps, "active_user", None)
+            plan = body.get("plan")  # client may pass back the dry-run plan to apply exactly
             try:
-                result = await backend.compact_memories(profile, user_id=user_id, dry_run=dry_run)
+                result = await backend.compact_memories(profile, user_id=user_id, dry_run=dry_run, plan=plan)
             except Exception as e:
                 logger.warning("compact_memories failed: %s", e)
                 return JSONResponse({"error": str(e)}, status_code=500)

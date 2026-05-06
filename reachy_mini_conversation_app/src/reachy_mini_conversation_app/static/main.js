@@ -491,9 +491,12 @@ async function init() {
     const compactCancelBtn = document.getElementById("compact-cancel-btn");
     const compactApplyStatus = document.getElementById("compact-apply-status");
 
+    let pendingCompactPlan = null;
+
     function renderCompactPlan(result) {
       compactList.innerHTML = "";
       const actions = result.proposed || [];
+      pendingCompactPlan = actions;  // remember exactly what the user is about to approve
       compactSummary.textContent = `Analyzed ${result.analyzed} memories. ${result.summary || ""} (${actions.length} action${actions.length === 1 ? "" : "s"} proposed)`;
       if (!actions.length) {
         compactApplyBar.classList.add("hidden");
@@ -555,13 +558,20 @@ async function init() {
     });
 
     compactApplyBtn.addEventListener("click", async () => {
+      if (!pendingCompactPlan || pendingCompactPlan.length === 0) {
+        compactApplyStatus.textContent = "Nothing to apply.";
+        return;
+      }
       compactApplyBtn.disabled = true;
       compactApplyStatus.textContent = "Applying…";
       try {
+        // Send the EXACT plan from the dry-run back to the server so it executes
+        // what the user just approved, instead of re-analyzing (which would race
+        // with the prior apply and find different work).
         const resp = await fetch("/memory/compact", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ dry_run: false }),
+          body: JSON.stringify({ dry_run: false, plan: pendingCompactPlan }),
         });
         const data = await resp.json();
         if (data.error) {
@@ -569,6 +579,7 @@ async function init() {
         } else {
           compactApplyStatus.textContent = `Done — ${data.applied} memor${data.applied === 1 ? "y" : "ies"} updated.`;
           compactApplyBar.classList.add("hidden");
+          pendingCompactPlan = null;
         }
       } catch (e) {
         compactApplyStatus.textContent = "Failed: " + (e.message || "unknown");
