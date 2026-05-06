@@ -859,36 +859,42 @@ class GeminiLiveHandler(AsyncStreamHandler):
         def _run() -> None:
             try:
                 from edge_impulse_linux.audio import AudioImpulseRunner
-                import sounddevice as _sd
+                import pyaudio as _pa
 
                 # Ensure model binary is executable
                 mode = os.stat(self._ei_model_path).st_mode
                 if not (mode & stat.S_IXUSR):
                     os.chmod(self._ei_model_path, mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
-                # Find the correct input device — prefer reachymini_audio_src (input only),
-                # fall back to pipewire which routes all audio and supports 16kHz
-                devices = _sd.query_devices()
+                # IMPORTANT: EI SDK uses PyAudio internally — must use PyAudio's device
+                # index, not sounddevice's. They enumerate differently.
+                pa = _pa.PyAudio()
                 device_id = None
-                # First pass: exact input-only Reachy device
-                for i, device in enumerate(devices):
-                    name = device['name'].lower()
-                    if 'reachymini_audio_src' in name and device['max_input_channels'] > 0:
-                        device_id = i
-                        break
-                # Second pass: any reachy input device
-                if device_id is None:
-                    for i, device in enumerate(devices):
-                        name = device['name'].lower()
-                        if 'reachy' in name and device['max_input_channels'] > 0:
+                device_name = "unknown"
+                try:
+                    # First pass: input-only Reachy device
+                    for i in range(pa.get_device_count()):
+                        info = pa.get_device_info_by_index(i)
+                        if info['maxInputChannels'] > 0 and 'reachymini_audio_src' in info['name'].lower():
                             device_id = i
+                            device_name = info['name']
                             break
-                # Fall back to pipewire (device 0) — supports 16kHz, routes mic input
-                if device_id is None:
-                    device_id = 0
+                    # Fall back to pipewire (any device with input that's not the sink)
+                    if device_id is None:
+                        for i in range(pa.get_device_count()):
+                            info = pa.get_device_info_by_index(i)
+                            if info['maxInputChannels'] > 0 and 'sink' not in info['name'].lower():
+                                device_id = i
+                                device_name = info['name']
+                                break
+                finally:
+                    pa.terminate()
 
-                device_name = devices[device_id]['name'] if device_id < len(devices) else 'unknown'
-                logger.info("Edge Impulse using audio device %d: %s", device_id, device_name)
+                if device_id is None:
+                    logger.warning("No suitable audio input device found for Edge Impulse")
+                    return
+
+                logger.info("Edge Impulse using PyAudio device %d: %s", device_id, device_name)
 
                 with AudioImpulseRunner(self._ei_model_path) as runner:
                     info = runner.init()
