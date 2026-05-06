@@ -6,6 +6,8 @@ from importlib.resources import files
 
 from dotenv import find_dotenv, load_dotenv
 
+logger = logging.getLogger(__name__)
+
 
 # Locked profile: set to a profile name (e.g., "astronomer") to lock the app
 # to that profile and disable all profile switching. Leave as None for normal behavior.
@@ -15,6 +17,42 @@ PROJECT_ROOT = Path(__file__).parents[2].resolve()
 # Stable per-user config directory — survives reinstalls and launcher reboots.
 REACHY_MINI_DIR: Path = Path.home() / ".reachy_mini"
 REACHY_MINI_ENV_PATH: Path = REACHY_MINI_DIR / ".env"
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    """Parse a boolean environment flag.
+
+    Accepted truthy values: 1, true, yes, on
+    Accepted falsy values: 0, false, no, off
+    """
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    logger.warning("Invalid boolean value for %s=%r, using default=%s", name, raw, default)
+    return default
+
+
+# Load .env BEFORE any env-dependent module-level computation runs.
+# Without this, REACHY_MINI_PROFILES_OVERRIDE (and friends) are missed at
+# module load time, so DEFAULT_PROFILES_DIRECTORY and Config.PROFILES_DIRECTORY
+# can resolve to different paths — which trips the collision check in __init__.
+if _env_flag("REACHY_MINI_SKIP_DOTENV", default=False):
+    logger.info("Skipping .env loading because REACHY_MINI_SKIP_DOTENV is set")
+elif REACHY_MINI_ENV_PATH.exists():
+    load_dotenv(dotenv_path=REACHY_MINI_ENV_PATH, override=True)
+    logger.info("Configuration loaded from %s", REACHY_MINI_ENV_PATH)
+else:
+    _dotenv_path = find_dotenv(usecwd=True)
+    if _dotenv_path:
+        load_dotenv(dotenv_path=_dotenv_path, override=True)
+        logger.info("Configuration loaded from %s", _dotenv_path)
+    else:
+        logger.warning("No .env file found, using environment variables")
 
 
 def _is_source_checkout_root(root: Path) -> bool:
@@ -95,9 +133,6 @@ DEFAULT_VOICE = "Kore"
 GEMINI_BACKEND = "gemini"
 OPENAI_BACKEND = "openai"  # kept for any upstream import compatibility
 
-logger = logging.getLogger(__name__)
-
-
 def _resolve_model_name(model_name: str | None = None) -> str:
     """Return a configured model name, falling back to the default Gemini Live model."""
     candidate = (model_name or "").strip()
@@ -116,26 +151,6 @@ def _resolve_auto_sleep_minutes(value: str | None) -> int:
         minutes = DEFAULT_AUTO_SLEEP_MINUTES
     lo, hi = AUTO_SLEEP_MINUTES_RANGE
     return max(lo, min(hi, minutes))
-
-
-def _env_flag(name: str, default: bool = False) -> bool:
-    """Parse a boolean environment flag.
-
-    Accepted truthy values: 1, true, yes, on
-    Accepted falsy values: 0, false, no, off
-    """
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-
-    value = raw.strip().lower()
-    if value in {"1", "true", "yes", "on"}:
-        return True
-    if value in {"0", "false", "no", "off"}:
-        return False
-
-    logger.warning("Invalid boolean value for %s=%r, using default=%s", name, raw, default)
-    return default
 
 
 def _collect_profile_names(profiles_root: Path) -> set[str]:
@@ -184,25 +199,6 @@ if LOCKED_PROFILE is not None:
     if not _instructions_file.is_file():
         print(f"Error: LOCKED_PROFILE '{LOCKED_PROFILE}' has no instructions.txt", file=sys.stderr)
         sys.exit(1)
-
-_skip_dotenv = _env_flag("REACHY_MINI_SKIP_DOTENV", default=False)
-
-if _skip_dotenv:
-    logger.info("Skipping .env loading because REACHY_MINI_SKIP_DOTENV is set")
-else:
-    # Primary: stable user config at ~/.reachy_mini/.env (survives reinstalls, fixes launcher CWD issue)
-    if REACHY_MINI_ENV_PATH.exists():
-        load_dotenv(dotenv_path=REACHY_MINI_ENV_PATH, override=True)
-        logger.info("Configuration loaded from %s", REACHY_MINI_ENV_PATH)
-    else:
-        # Fallback: search upward from CWD (dev/local use)
-        dotenv_path = find_dotenv(usecwd=True)
-        if dotenv_path:
-            load_dotenv(dotenv_path=dotenv_path, override=True)
-            logger.info("Configuration loaded from %s", dotenv_path)
-        else:
-            logger.warning("No .env file found, using environment variables")
-
 
 class Config:
     """Configuration class for the conversation app."""
