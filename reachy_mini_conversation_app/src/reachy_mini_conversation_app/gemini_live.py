@@ -856,44 +856,66 @@ class GeminiLiveHandler(AsyncStreamHandler):
 
         def _run() -> None:
             try:
-                from edge_impulse_linux.audio import AudioImpulseRunner
-                # Ensure model binary is executable
+                import subprocess as _sp
+                import json as _json
+                import time as _time
+                import sounddevice as _sd
+
+                # Ensure binary is executable
                 mode = os.stat(self._ei_model_path).st_mode
                 if not (mode & stat.S_IXUSR):
                     os.chmod(self._ei_model_path, mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
-                with AudioImpulseRunner(self._ei_model_path) as runner:
-                    info = runner.init()
-                    logger.info("Edge Impulse runner loaded: %s/%s",
-                                info['project']['owner'], info['project']['name'])
-                    # Find Reachy Mini audio device by name
-                    import sounddevice as _sd
-                    import time as _time
-                    device_id = None
-                    for i, d in enumerate(_sd.query_devices()):
-                        if d['max_input_channels'] > 0 and 'reachy' in d['name'].lower():
-                            device_id = i
-                            break
-                    logger.info("Edge Impulse using audio device id=%s", device_id)
-                    # Binary prompts for device interactively — feed it directly to stdin
-                    if device_id is not None and hasattr(runner, 'runner') and runner.runner:
-                        _time.sleep(0.2)
+                # Find Reachy Mini audio device
+                device_id = 2  # default: reachymini_audio_src
+                for i, d in enumerate(_sd.query_devices()):
+                    if d['max_input_channels'] > 0 and 'reachy' in d['name'].lower():
+                        device_id = i
+                        break
+                logger.info("Edge Impulse starting with audio device id=%s", device_id)
+
+                proc = _sp.Popen(
+                    [self._ei_model_path],
+                    stdin=_sp.PIPE, stdout=_sp.PIPE, stderr=_sp.DEVNULL
+                )
+
+                # Read lines from stdout; when we see the device prompt, feed the device_id
+                fed = False
+                while not stop_event.is_set() and self._sleeping:
+                    line = proc.stdout.readline()
+                    if not line:
+                        break
+                    text = line.decode('utf-8', errors='ignore').strip()
+
+                    # Device selection prompt
+                    if not fed and ('type the id' in text.lower() or 'audio device' in text.lower()):
+                        logger.info("Edge Impulse feeding device_id=%s", device_id)
+                        proc.stdin.write(f'{device_id}\n'.encode())
+                        proc.stdin.flush()
+                        fed = True
+                        continue
+
+                    # Classification JSON
+                    if fed and text.startswith('{'):
                         try:
-                            runner.runner.stdin.write(f'{device_id}\n'.encode())
-                            runner.runner.stdin.flush()
-                        except Exception as _e:
-                            logger.debug("EI stdin write: %s", _e)
-                    for res, _ in runner.classifier(device_id=device_id):
-                        if stop_event.is_set() or not self._sleeping:
-                            break
-                        score = res.get("result", {}).get("classification", {}).get("hey_reachy", 0.0)
-                        if score > 0.01:
-                            logger.info("Edge Impulse score: %.3f", score)
-                        if score >= self._ei_threshold:
-                            logger.info("Hey Reachy detected! score=%.3f — waking up", score)
-                            self._sleeping = False
-                            asyncio.run_coroutine_threadsafe(self.wake(), loop)
-                            break
+                            res = _json.loads(text)
+                            score = res.get("result", {}).get("classification", {}).get("hey_reachy", 0.0)
+                            if score > 0.05:
+                                logger.info("Edge Impulse score: %.3f", score)
+                            if score >= self._ei_threshold:
+                                logger.info("Hey Reachy detected! score=%.3f — waking up", score)
+                                self._sleeping = False
+                                asyncio.run_coroutine_threadsafe(self.wake(), loop)
+                                break
+                        except _json.JSONDecodeError:
+                            pass
+
+                proc.terminate()
+                try:
+                    proc.wait(timeout=2.0)
+                except Exception:
+                    proc.kill()
+
             except Exception as e:
                 logger.warning("Edge Impulse detection error: %s", e)
 
