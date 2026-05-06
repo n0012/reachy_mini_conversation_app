@@ -28,7 +28,13 @@ dependencies = [
     "google-genai>=1.0.0",
 
     #Wake word (Edge Impulse — luisomoreau/hey_reachy_wake_word_detection)
+    # NOTE: edge-impulse-linux imports pyaudio at module top, so PyAudio
+    # is required even though we use sounddevice for actual capture.
+    # System dep on Linux: portaudio19-dev (factory-installed on Reachy Mini OS).
     "edge-impulse-linux>=1.0.7",
+    "PyAudio>=0.2.14",
+    "sounddevice>=0.5.0",
+    "scipy>=1.10",
 
     #Auth (no gcloud CLI needed on robot)
     "google-auth>=2.0.0",

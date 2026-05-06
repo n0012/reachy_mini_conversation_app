@@ -71,21 +71,23 @@ Four Google Cloud pillars power this app:
 
 ## Quick start
 
+The easiest path is the Reachy Mini launcher dashboard — install this Space directly without any SSH:
+
+1. Open the launcher at `http://reachy-mini.local` (or the robot's IP)
+2. Apps → Available → install **`reachy_mini_conversation_app_gemini`**
+3. Click Launch → the in-browser setup wizard at `http://ROBOT_IP:7860` collects your Gemini API key, GCP project, Agent Engine ID, and SA JSON. Stored at `~/.reachy_mini/.env` (survives reinstalls).
+
+For local development with rsync deploys, see the `Deploying` section below.
+
+### System requirements
+
+Reachy Mini OS already ships with everything needed (`portaudio19-dev`, `libportaudio2`, `python3-pyaudio`). On other Linux systems you'll want:
+
 ```bash
-# 1. SSH to robot
-ssh pollen@ROBOT_IP   # password: root
-
-# 2. Clone and install
-cd ~/dev
-git clone https://github.com/n0012/reachy_mini_conversation_app.git
-/venvs/apps_venv/bin/pip install -e ~/dev/reachy_mini_conversation_app/reachy_mini_conversation_app/
-
-# 3. Open the setup wizard
-# On your computer, navigate to: http://ROBOT_IP:7860
-# Complete the one-time setup (API keys, GCP project, Agent Engine ID)
+sudo apt-get install -y portaudio19-dev libportaudio2
 ```
 
-The setup wizard stores everything in `~/.reachy_mini/.env` on the robot. No manual `.env` editing required.
+The pip deps (`PyAudio`, `sounddevice`, `scipy`, `edge-impulse-linux`) install automatically from `pyproject.toml`.
 
 ---
 
