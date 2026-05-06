@@ -70,11 +70,29 @@ def read_instructions_for(name: str) -> str:
 
 
 def available_tools_for(selected: str) -> List[str]:
-    """List available tool modules for the given profile selection."""
+    """List per-profile toggleable tool modules.
+
+    Excludes system tools (always loaded regardless of tools.txt — recall,
+    forget, go_to_sleep, task_status, task_cancel) so the UI doesn't show
+    toggles that have no effect. `remember` and `identify_user` ARE
+    toggleable per-profile and remain visible.
+    """
+    from reachy_mini_conversation_app.tools.tool_constants import SystemTool
+    # Exclude system tools (always loaded) + internal infrastructure modules
+    # that don't define a user-facing Tool subclass.
+    excluded = {t.value for t in SystemTool} | {
+        "__init__",
+        "core_tools",
+        "tool_constants",
+        "background_tool_manager",
+        "mcp_adapter",
+        "mcp_client",
+    }
+
     shared: List[str] = []
     try:
         for py in _tools_dir().glob("*.py"):
-            if py.stem in {"__init__", "core_tools"}:
+            if py.stem in excluded:
                 continue
             shared.append(py.stem)
     except Exception:
@@ -83,6 +101,8 @@ def available_tools_for(selected: str) -> List[str]:
     try:
         if selected != DEFAULT_OPTION:
             for py in resolve_profile_dir(selected).glob("*.py"):
+                if py.stem in excluded:
+                    continue
                 local.append(py.stem)
     except Exception:
         pass
