@@ -27,6 +27,8 @@ from typing import Protocol, runtime_checkable
 
 import google.auth
 import google.auth.transport.requests
+import math
+from datetime import datetime, timezone
 
 
 logger = logging.getLogger(__name__)
@@ -37,6 +39,18 @@ MEMORY_SEARCH_QUERY = "What do I know about this user, their preferences, and ou
 _DEFAULT_MEMORY_DIR = Path.home() / ".reachy_mini" / "memory"
 _ACTIVE_USER_FILE = Path.home() / ".reachy_mini" / "active_user.json"
 DEFAULT_USER_ID = "unknown"
+
+# Recency-boost re-ranking parameters. Vertex Memory Bank's :retrieve API
+# only ranks by similarity (no native time-weighting), so we fetch a wider
+# candidate pool and re-score client-side combining similarity + recency:
+#   score = similarity + RECENCY_ALPHA * exp(-age_days / RECENCY_TAU_DAYS)
+# Tuned so a fact from yesterday outranks a slightly more similar fact from
+# 6 months ago, but old facts still surface when nothing recent matches.
+RECENCY_ALPHA = 0.15        # weight of recency bonus relative to similarity (0..1)
+RECENCY_TAU_DAYS = 30.0     # half-life-ish: bonus decays to ~37% at this age
+MAX_DISTANCE = 1.5          # client-side filter on similarity distance
+DEFAULT_FETCH_K = 50        # over-fetch this many before re-rank
+DEFAULT_TOP_K = 20          # return this many after re-rank
 
 
 def get_active_user() -> str:
@@ -71,6 +85,10 @@ class MemoryBackend(Protocol):
 
     async def load_context(self, profile: str, user_id: str | None = None) -> str:
         """Return a text block injected into system_instruction at session start."""
+        ...
+
+    async def search(self, profile: str, query: str, user_id: str | None = None, top_k: int = 10) -> list[str]:
+        """Mid-conversation recall — return up to top_k facts matching the query."""
         ...
 
     async def save_session(self, profile: str, transcript: list[dict], user_id: str | None = None) -> None:
@@ -152,8 +170,21 @@ class VertexMemoryBackend:
     def _scope(self, profile: str, user_id: str | None = None) -> dict:
         return {"user_id": user_id or get_active_user(), "profile": profile}
 
-    async def load_context(self, profile: str, user_id: str | None = None) -> str:
-        """Retrieve relevant memories and format as bullet list."""
+    async def _retrieve(
+        self,
+        profile: str,
+        query: str,
+        user_id: str | None = None,
+        fetch_k: int = DEFAULT_FETCH_K,
+        top_k: int = DEFAULT_TOP_K,
+    ) -> list[str]:
+        """Retrieve facts for a query, distance-filter, recency-boost, return top facts.
+
+        Vertex Memory Bank :retrieve only ranks by similarity. We over-fetch
+        and then re-rank with: score = (1 - distance) + α * exp(-age_days / τ).
+        Recent facts surface naturally even when an older fact is slightly
+        more similar; old facts still win when nothing recent matches.
+        """
         scope = self._scope(profile, user_id)
         try:
             resp = await asyncio.get_event_loop().run_in_executor(
@@ -161,29 +192,89 @@ class VertexMemoryBackend:
                 lambda: _api("POST", self._url("memories:retrieve"), {
                     "scope": scope,
                     "similarity_search_params": {
-                        "search_query": MEMORY_SEARCH_QUERY,
-                        "top_k": 20,
+                        "search_query": query,
+                        "top_k": fetch_k,
                     },
                 }),
             )
-            all_memories = resp.get("retrievedMemories", [])
-            # Apply distance filter client-side (OpenClaw pattern — not a server param)
-            memories = [m for m in all_memories if m.get("distance") is None or m.get("distance") <= 1.5]
-            if len(memories) < len(all_memories):
-                logger.info("Memory: filtered %d low-quality results (maxDistance=1.5)", len(all_memories) - len(memories))
-            if not memories:
-                logger.info("Memory: no stored memories for user=%r profile=%r", scope["user_id"], profile)
-                return ""
-            facts = [m["memory"]["fact"] for m in memories if m.get("memory", {}).get("fact")]
-            if not facts:
-                logger.info("Memory: retrieved %d entries but none had facts", len(memories))
-                return ""
-            logger.info("Memory: injecting %d facts (user=%r profile=%r)", len(facts), scope["user_id"], profile)
-            numbered = "\n".join(f"{i+1}. {f}" for i, f in enumerate(facts))
-            return f"<vertex_memory_bank>\nRelevant memories from prior sessions:\n{numbered}\n</vertex_memory_bank>"
         except Exception as exc:
-            logger.warning("Memory: load failed (user=%r profile=%r): %s", scope["user_id"], profile, exc)
+            logger.warning(
+                "Memory: retrieve failed (user=%r profile=%r query=%r): %s",
+                scope["user_id"], profile, query[:60], exc,
+            )
+            return []
+
+        all_memories = resp.get("retrievedMemories", [])
+        kept = [m for m in all_memories if m.get("distance") is None or m.get("distance") <= MAX_DISTANCE]
+        if len(kept) < len(all_memories):
+            logger.info(
+                "Memory: filtered %d low-quality results (maxDistance=%.1f)",
+                len(all_memories) - len(kept), MAX_DISTANCE,
+            )
+        if not kept:
+            return []
+
+        ranked = self._rerank_with_recency(kept)[:top_k]
+        return [m["memory"]["fact"] for m in ranked if m.get("memory", {}).get("fact")]
+
+    @staticmethod
+    def _rerank_with_recency(memories: list[dict]) -> list[dict]:
+        """Re-sort by (1 - distance) + RECENCY_ALPHA * exp(-age_days / τ). Newest first on ties."""
+        now = datetime.now(timezone.utc)
+
+        def _age_days(m: dict) -> float:
+            ts = m.get("memory", {}).get("createTime") or m.get("memory", {}).get("updateTime")
+            if not ts:
+                return 365.0  # treat unknown as a year old
+            try:
+                # Vertex returns RFC3339 like "2026-04-15T10:30:00.123456Z"; fromisoformat needs +00:00
+                dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                return max(0.0, (now - dt).total_seconds() / 86400.0)
+            except Exception:
+                return 365.0
+
+        def _score(m: dict) -> float:
+            sim = 1.0 - float(m.get("distance", 0.0))  # higher is better
+            age = _age_days(m)
+            recency_bonus = RECENCY_ALPHA * math.exp(-age / RECENCY_TAU_DAYS)
+            return sim + recency_bonus
+
+        return sorted(memories, key=_score, reverse=True)
+
+    async def load_context(self, profile: str, user_id: str | None = None) -> str:
+        """Retrieve relevant memories at session start and format as bullet list for system prompt injection."""
+        facts = await self._retrieve(profile, MEMORY_SEARCH_QUERY, user_id=user_id)
+        scope_user = user_id or get_active_user()
+        if not facts:
+            logger.info("Memory: no stored memories for user=%r profile=%r", scope_user, profile)
             return ""
+        logger.info("Memory: injecting %d facts (user=%r profile=%r)", len(facts), scope_user, profile)
+        numbered = "\n".join(f"{i+1}. {f}" for i, f in enumerate(facts))
+        return f"<vertex_memory_bank>\nRelevant memories from prior sessions:\n{numbered}\n</vertex_memory_bank>"
+
+    async def search(
+        self,
+        profile: str,
+        query: str,
+        user_id: str | None = None,
+        top_k: int = 10,
+    ) -> list[str]:
+        """Mid-conversation recall. Returns up to `top_k` facts matching `query`.
+
+        Used by the `recall` tool — Gemini can request additional memories
+        when the initial session-start dump didn't include something it needs.
+        """
+        facts = await self._retrieve(
+            profile, query, user_id=user_id,
+            fetch_k=max(top_k * 2, 20),
+            top_k=top_k,
+        )
+        scope_user = user_id or get_active_user()
+        logger.info(
+            "Memory: search returned %d facts (user=%r profile=%r query=%r)",
+            len(facts), scope_user, profile, query[:80],
+        )
+        return facts
 
     @staticmethod
     def _is_meaningful_turn(turn: dict) -> bool:
@@ -296,6 +387,17 @@ class FileMemoryBackend:
                 if text:
                     parts.append(text)
         return "\n\n".join(parts)
+
+    async def search(self, profile: str, query: str, user_id: str | None = None, top_k: int = 10) -> list[str]:
+        """Naive substring search over the file-backed MEMORY.md as a dev fallback."""
+        d = self._profile_dir(profile, user_id)
+        f = d / "MEMORY.md"
+        if not f.exists():
+            return []
+        q = query.lower()
+        hits = [line.strip().lstrip("- ") for line in f.read_text(encoding="utf-8").splitlines()
+                if line.strip() and q in line.lower()]
+        return hits[:top_k]
 
     async def save_session(self, profile: str, transcript: list[dict], user_id: str | None = None) -> None:
         if not transcript:
