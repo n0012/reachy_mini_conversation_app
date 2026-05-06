@@ -1,10 +1,13 @@
 # Files excluded from HuggingFace Space publishing — kept in private git only
 
+# Secrets — never publish
+**/.env
+*-sa-key.json
+*service_account*.json
+*credentials*.json
+
 # Private profiles with personal entity IDs, household config, and PII
 profiles/yuki/
-
-# OWW training artifacts
-oww_training/
 
 # Operational docs with personal project IDs and account details
 docs/GCP_ORG_POLICY.md
