@@ -10,11 +10,13 @@ Audio formats (per Gemini Live API spec):
 
 import json
 import os
+import stat
 import uuid
 import base64
 import random
 import asyncio
 import logging
+import threading
 from typing import Any, Dict, List, Final, Tuple, Literal, Optional
 from datetime import datetime
 
@@ -171,16 +173,14 @@ class GeminiLiveHandler(AsyncStreamHandler):
         self._hold_loop_done: asyncio.Event = asyncio.Event()
         self._hold_loop_done.set()  # not holding initially
         _AUTO_SLEEP_SECONDS: int = 600  # 10 minutes
-        # Wake word detector (lazy-loaded when first needed)
-        self._oww_model: object | None = None
-        self._oww_buffer: list = []
-        self._OWW_CHUNK = 1280  # 80ms at 16kHz
-        # Prefer the bundled hey_reachy model; fall back to system hey_jarvis
+        # Edge Impulse wake word detection (luisomoreau/hey_reachy_wake_word_detection)
+        self._ei_thread: object | None = None
+        self._ei_stop: "threading.Event | None" = None
+        self._ei_threshold: float = 0.7
         import pathlib as _pl
-        _bundled = _pl.Path(__file__).parent / "models" / "hey_reachy.onnx"
-        self._OWW_MODEL_PATH = str(_bundled) if _bundled.exists() else \
-            "/venvs/apps_venv/lib/python3.12/site-packages/openwakeword/resources/models/hey_jarvis_v0.1.onnx"
-        self._OWW_THRESHOLD = 0.5
+        self._ei_model_path = str(
+            _pl.Path(__file__).parent / "models" / "hey-reachy-wake-word-detection-linux-aarch64.eim"
+        )
         self._pending_user_transcript_chunks: list[str] = []
         self._pending_assistant_transcript_chunks: list[str] = []
         self._listening_state = False
@@ -330,6 +330,8 @@ class GeminiLiveHandler(AsyncStreamHandler):
             # Hold sleep pose — movement manager breathing fights it
             self._hold_loop_done.clear()
             asyncio.create_task(self._hold_sleep_pose(robot))
+        # Start Edge Impulse wake word detection in background thread
+        self._start_ei_detection(asyncio.get_event_loop())
 
     async def _hold_sleep_pose(self, robot: object) -> None:
         """Hold sleep pose silently every 1s to counter breathing/idle animation."""
@@ -354,6 +356,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
 
     async def wake(self, profile: str | None = None) -> None:
         """Exit sleep mode — reconnect with optional profile switch."""
+        self._stop_ei_detection()
         logger.info("Waking up (profile=%r)", profile)
         if profile and profile != self.deps.active_profile:
             from reachy_mini_conversation_app.config import set_custom_profile
@@ -839,48 +842,63 @@ class GeminiLiveHandler(AsyncStreamHandler):
                         pass
                 await self.tool_manager.shutdown()
 
-    def _check_wake_word(self, audio_int16: NDArray[np.int16]) -> bool:
-        """Feed audio to OpenWakeWord; return True if wake word detected."""
-        try:
-            if self._oww_model is None:
-                from openwakeword.model import Model as _OWWModel
-                self._oww_model = _OWWModel(wakeword_model_paths=[self._OWW_MODEL_PATH])
-            self._oww_buffer.extend(audio_int16.tolist())
-            while len(self._oww_buffer) >= self._OWW_CHUNK:
-                chunk = np.array(self._oww_buffer[:self._OWW_CHUNK], dtype=np.int16)
-                self._oww_buffer = self._oww_buffer[self._OWW_CHUNK:]
-                scores = self._oww_model.predict(chunk)
-                max_score = max(scores.values()) if scores else 0.0
-                logger.warning("OWW score: %.4f (threshold=%.1f)",
-                               max_score, self._OWW_THRESHOLD)
-                if any(v >= self._OWW_THRESHOLD for v in scores.values()):
-                    self._oww_model.reset()
-                    return True
-        except Exception as e:
-            logger.debug("OWW error: %s", e)
-        return False
+    def _start_ei_detection(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Start Edge Impulse wake word detection in a background thread.
+
+        Uses luisomoreau/hey_reachy_wake_word_detection (Edge Impulse model trained
+        on real 'Hey Reachy' voice samples for linux-aarch64).
+        """
+        if not os.path.exists(self._ei_model_path):
+            logger.warning("Edge Impulse model not found at %s — wake word disabled", self._ei_model_path)
+            return
+        self._ei_stop = threading.Event()
+        stop_event = self._ei_stop
+
+        def _run() -> None:
+            try:
+                from edge_impulse_linux.audio import AudioImpulseRunner
+                # Ensure model binary is executable
+                mode = os.stat(self._ei_model_path).st_mode
+                if not (mode & stat.S_IXUSR):
+                    os.chmod(self._ei_model_path, mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+                with AudioImpulseRunner(self._ei_model_path) as runner:
+                    info = runner.init()
+                    logger.info("Edge Impulse runner loaded: %s/%s",
+                                info['project']['owner'], info['project']['name'])
+                    for res, _ in runner.classifier():
+                        if stop_event.is_set() or not self._sleeping:
+                            break
+                        score = res.get("result", {}).get("classification", {}).get("hey_reachy", 0.0)
+                        if score > 0.01:
+                            logger.info("Edge Impulse score: %.3f", score)
+                        if score >= self._ei_threshold:
+                            logger.info("Hey Reachy detected! score=%.3f — waking up", score)
+                            self._sleeping = False
+                            asyncio.run_coroutine_threadsafe(self.wake(), loop)
+                            break
+            except Exception as e:
+                logger.warning("Edge Impulse detection error: %s", e)
+
+        self._ei_thread = threading.Thread(target=_run, daemon=True, name="ei-wake-word")
+        self._ei_thread.start()
+        logger.info("Edge Impulse wake word detection started")
+
+    def _stop_ei_detection(self) -> None:
+        """Stop the Edge Impulse wake word detection thread."""
+        if self._ei_stop is not None:
+            self._ei_stop.set()
+        if self._ei_thread is not None and self._ei_thread.is_alive():
+            self._ei_thread.join(timeout=2.0)
+        self._ei_thread = None
+        self._ei_stop = None
 
     async def receive(self, frame: Tuple[int, NDArray[np.int16]]) -> None:
         """Receive audio frame from microphone and send to Gemini."""
         input_sample_rate, audio_frame = frame
 
-        # When sleeping, route audio to wake word detector instead of Gemini
+        # During sleep, Edge Impulse handles wake word detection in its own thread
         if self._sleeping:
-            logger.warning("OWW receive called — sleeping, frame shape=%s sr=%d", audio_frame.shape, input_sample_rate)
-            if audio_frame.ndim == 2:
-                audio_frame = audio_frame.T[0] if audio_frame.shape[1] > audio_frame.shape[0] else audio_frame[:, 0]
-            # Resample to 16kHz if needed (same as Gemini path)
-            if GEMINI_INPUT_SAMPLE_RATE != input_sample_rate:
-                audio_frame = resample(audio_frame, int(len(audio_frame) * GEMINI_INPUT_SAMPLE_RATE / input_sample_rate))
-            audio_int16 = audio_to_int16(audio_frame)
-            # Skip OWW inference during silence — saves ~33% of a core when quiet
-            _mean = np.abs(audio_int16).mean()
-            logger.warning("OWW audio mean=%.1f", _mean)  # debug — remove after tuning
-            if _mean > 10:  # very low threshold — just to confirm OWW fires
-                if self._check_wake_word(audio_int16):
-                    logger.info("Wake word detected — waking up")
-                    self._sleeping = False  # suppress further OWW triggers while wake() runs
-                    asyncio.create_task(self.wake())
             return
 
         if not self.session:

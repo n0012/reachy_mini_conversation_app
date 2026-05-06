@@ -23,6 +23,9 @@ dependencies = [
     #Gemini
     "google-genai>=1.0.0",
 
+    #Wake word (Edge Impulse — luisomoreau/hey_reachy_wake_word_detection)
+    "edge-impulse-linux>=1.0.7",
+
     #Auth (no gcloud CLI needed on robot)
     "google-auth>=2.0.0",
 
@@ -99,6 +102,7 @@ reachy_mini_conversation_app = [
   "images/*",
   "static/*",
   "models/*.onnx",
+  "models/*.eim",
   ".env.example",
   "demos/**/*.txt",
   "prompts_library/*.txt",
