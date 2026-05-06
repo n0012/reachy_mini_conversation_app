@@ -1,2 +1,7 @@
 **/__pycache__
 **/*.pyc
+
+# Local backups of robot config (.env, SA keys, profiles) — never commit
+.reachy_mini_backups/
+**/.venv/
+**/.pytest_cache/

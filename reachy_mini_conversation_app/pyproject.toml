@@ -3,10 +3,14 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "reachy_mini_conversation_app_gemini"
+# Distribution name MUST match the reachy_mini_apps entry-point name below
+# so the launcher's `pip uninstall <app-name>` succeeds. Otherwise the
+# launcher reports "Successfully uninstalled" but the package stays.
+name = "reachy_mini_gemini_live"
 version = "0.5.0"
-authors = [{ name = "Pollen Robotics", email = "contact@pollen-robotics.com" }]
-description = ""
+authors = [{ name = "Nick Losier" }]
+maintainers = [{ name = "Nick Losier" }]
+description = "Reachy Mini conversation app — Gemini Live edition: per-user memory, MCP tools, Home Assistant control, offline wake word. Fork of pollen-robotics/reachy_mini_conversation_app."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -76,6 +80,12 @@ dev = [
   "types-requests",
   "python-semantic-release>=10.5.3",
 ]
+
+[project.urls]
+Homepage = "https://huggingface.co/spaces/n0012/reachy_mini_conversation_app_gemini"
+Source = "https://github.com/n0012/reachy_mini_conversation_app"
+Author = "https://www.linkedin.com/in/nicklosier"
+Upstream = "https://huggingface.co/spaces/pollen-robotics/reachy_mini_conversation_app"
 
 [project.scripts]
 reachy-mini-conversation-app = "reachy_mini_conversation_app.main:main"
