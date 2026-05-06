@@ -696,19 +696,21 @@ class GeminiLiveHandler(AsyncStreamHandler):
         async def _no_memory() -> str:
             return ""
 
-        # Sweep ttl-tagged memories that have expired (fire-and-forget — runs in
-        # parallel with everything else; result logged but not awaited blockingly)
-        if self._memory_enabled and hasattr(self._memory, "purge_expired"):
-            asyncio.create_task(
-                self._memory.purge_expired(profile, user_id=user_id),
-                name="memory-purge-expired",
-            )
-
         memory_context, location_context, mcp_specs = await asyncio.gather(
             self._memory.load_context(profile, user_id=user_id) if self._memory_enabled else _no_memory(),
             asyncio.get_running_loop().run_in_executor(None, get_location_context),
             mcp_pool.connect_all(),
         )
+
+        # Sweep ttl-tagged memories that have expired. Runs AFTER load_context
+        # so credentials are already primed (avoids a 401 race seen when the
+        # sweep fires before any other Vertex call has initialized auth).
+        # Fire-and-forget — doesn't block session start.
+        if self._memory_enabled and hasattr(self._memory, "purge_expired"):
+            asyncio.create_task(
+                self._memory.purge_expired(profile, user_id=user_id),
+                name="memory-purge-expired",
+            )
         self._mcp_pool = mcp_pool
         if mcp_specs:
             register_mcp_tools(mcp_pool, mcp_specs)
