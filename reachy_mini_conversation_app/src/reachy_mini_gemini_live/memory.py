@@ -586,10 +586,19 @@ class VertexMemoryBackend:
             return {"error": "GEMINI_API_KEY not set", "analyzed": len(items), "applied": 0}
         try:
             client = _genai.Client(api_key=api_key)
-            model_name = "gemini-2.5-flash"
+            model_name = "gemini-3.1-pro-preview"
+            from google.genai import types as _genai_types
             resp = await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: client.models.generate_content(model=model_name, contents=prompt),
+                lambda: client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=_genai_types.GenerateContentConfig(
+                        thinking_config=_genai_types.ThinkingConfig(
+                            thinking_level="high",
+                        ),
+                    ),
+                ),
             )
             text = (resp.text or "").strip()
             # Strip markdown fences if present
