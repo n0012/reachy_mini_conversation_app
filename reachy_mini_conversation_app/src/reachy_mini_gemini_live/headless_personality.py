@@ -11,21 +11,27 @@ from __future__ import annotations
 from typing import List
 from pathlib import Path
 
-from .config import DEFAULT_PROFILES_DIRECTORY, config
+import os
+from .config import DEFAULT_PROFILES_DIRECTORY, REACHY_MINI_DIR
 
 
 DEFAULT_OPTION = "(built-in default)"
 
+# User profiles default to ~/.reachy_mini_gemini_live/profiles/ — outside the app
+# package so they survive updates. Override with REACHY_MINI_EXTERNAL_PROFILES_DIRECTORY.
+_env_user_dir = os.getenv("REACHY_MINI_EXTERNAL_PROFILES_DIRECTORY")
+USER_PROFILES_DIR: Path = Path(_env_user_dir) if _env_user_dir else REACHY_MINI_DIR / "profiles"
 
-def _user_profiles_root() -> Path | None:
-    """Return the user-configured profiles dir (survives updates), or None."""
-    p = config.PROFILES_DIRECTORY
-    return p if p != DEFAULT_PROFILES_DIRECTORY else None
+
+def _user_profiles_root() -> Path:
+    """Persistent user profiles dir — survives app updates."""
+    USER_PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+    return USER_PROFILES_DIR
 
 
 def _profiles_root() -> Path:
-    """Where to write new/edited profiles — user dir when configured, built-in otherwise."""
-    return _user_profiles_root() or DEFAULT_PROFILES_DIRECTORY
+    """Where to write new/edited profiles — always the persistent user dir."""
+    return _user_profiles_root()
 
 
 def _prompts_dir() -> Path:
