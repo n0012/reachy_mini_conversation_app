@@ -720,7 +720,20 @@ class GeminiLiveHandler(AsyncStreamHandler):
             len(mcp_specs),
         )
         if memory_context:
-            await self.output_queue.put(AdditionalOutputs({"role": "memory", "content": "memories loaded"}))
+            # Count approximate memory entries (each starts with a digit + period or dash)
+            import re as _re
+            mem_count = len(_re.findall(r'(?m)^(?:\d+\.|[-•])\s', memory_context)) or 1
+            await self.output_queue.put(AdditionalOutputs({
+                "role": "memory",
+                "content": f"🧠 {mem_count} {'memory' if mem_count == 1 else 'memories'} · {user_id}",
+                "detail": memory_context,
+            }))
+        else:
+            await self.output_queue.put(AdditionalOutputs({
+                "role": "memory",
+                "content": f"🧠 no memories · {user_id}",
+                "detail": "",
+            }))
         live_config = self._build_live_config(memory_context=extra_context)
 
         async with self.client.aio.live.connect(

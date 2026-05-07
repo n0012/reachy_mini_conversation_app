@@ -166,24 +166,17 @@
             <button id="sleep-btn" class="ghost hidden" style="margin:0;padding:8px 14px;font-size:12px">😴 Sleep</button>
           </div>
         </div>
-        <div class="monitor-grid">
-          <div class="monitor-camera">
-            <label style="display:flex;align-items:center;gap:7px;margin-bottom:8px;font-size:12px;color:var(--muted);cursor:pointer">
-              <input type="checkbox" id="camera-toggle" style="width:auto" />
-              Show camera feed (1 fps)
-            </label>
-            <img id="camera-feed" alt="Camera feed" style="display:none" />
-            <p class="muted small camera-label" id="camera-label" style="display:none">1 fps · live</p>
-            <p class="eyebrow" style="margin:12px 0 6px">Activity</p>
-            <div id="activity-log"></div>
-            <p id="activity-empty" class="muted small">No activity yet.</p>
-          </div>
-          <div class="monitor-transcript">
-            <p class="eyebrow" style="margin:0 0 8px">Conversation</p>
-            <div id="transcript-log"></div>
-            <p id="transcript-empty" class="muted small">Waiting for conversation…</p>
-          </div>
+        <!-- Camera (hidden by default) -->
+        <div id="camera-section" style="margin-bottom:10px">
+          <label style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);cursor:pointer">
+            <input type="checkbox" id="camera-toggle" style="width:auto" />
+            Show camera feed (1 fps)
+          </label>
+          <img id="camera-feed" alt="Camera feed" style="display:none;width:100%;border-radius:10px;margin-top:8px" />
         </div>
+        <!-- Unified conversation + activity feed -->
+        <div id="unified-feed" style="display:flex;flex-direction:column;gap:6px;max-height:420px;overflow-y:auto"></div>
+        <p id="feed-empty" class="muted small" style="margin-top:8px">Waiting for conversation…</p>
       </div>
 
       <!-- Configuration (post-setup, collapsible) -->

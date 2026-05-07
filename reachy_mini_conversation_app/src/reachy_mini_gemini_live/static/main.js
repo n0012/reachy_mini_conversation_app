@@ -189,25 +189,20 @@ async function init() {
   const monitorPanel = document.getElementById("monitor-panel");
   const monitorChip = document.getElementById("monitor-chip");
   const cameraFeed = document.getElementById("camera-feed");
-  const cameraLabel = document.getElementById("camera-label");
   const cameraToggle = document.getElementById("camera-toggle");
   if (cameraToggle) {
     cameraToggle.addEventListener("change", () => {
       if (cameraToggle.checked) {
         cameraFeed.src = "/stream/camera";
         cameraFeed.style.display = "";
-        if (cameraLabel) cameraLabel.style.display = "";
       } else {
         cameraFeed.src = "";
         cameraFeed.style.display = "none";
-        if (cameraLabel) cameraLabel.style.display = "none";
       }
     });
   }
-  const transcriptLog = document.getElementById("transcript-log");
-  const transcriptEmpty = document.getElementById("transcript-empty");
-  const activityLog = document.getElementById("activity-log");
-  const activityEmpty = document.getElementById("activity-empty");
+  const unifiedFeed = document.getElementById("unified-feed");
+  const feedEmpty = document.getElementById("feed-empty");
   const setupStatusEl = document.getElementById("setup-status");
   const setupSubmitBtn = document.getElementById("setup-submit");
   const setupVoice = document.getElementById("setup-voice");
@@ -793,40 +788,96 @@ async function init() {
     updateSleepState();
     setInterval(updateSleepState, 15000);
 
-    // Monitor panel
+    // ── Unified feed ───────────────────────────────────────────────────────────
     show(monitorPanel, true);
-    const ACTIVITY_ROLES = new Set(["tool", "search", "memory"]);
-    function appendTranscriptMessage({ role, content }) {
-      if (!content || !content.trim()) return;
-      if (ACTIVITY_ROLES.has(role)) {
-        // Activity log — truncate tool content to name only (strip args for readability)
-        activityEmpty.style.display = "none";
-        const row = document.createElement("div");
-        row.className = "activity-row";
-        const icon = role === "tool" ? "🛠" : role === "search" ? "🔍" : "🧠";
-        // For tools: show just the function name, strip args
-        const display = role === "tool"
-          ? content.replace(/\(.*\)$/, "")
-          : content;
-        row.title = content; // full content on hover
-        row.innerHTML = `<span class="activity-icon">${icon}</span><span class="activity-text">${display}</span>`;
-        activityLog.appendChild(row);
-        activityLog.scrollTop = activityLog.scrollHeight;
-      } else {
-        // Conversation log
-        transcriptEmpty.style.display = "none";
-        const div = document.createElement("div");
-        div.className = `transcript-msg ${role === "user" ? "user" : "assistant"}`;
-        const label = document.createElement("div"); label.className = "transcript-role";
-        label.textContent = role === "user" ? "You" : "Reachy";
-        const text = document.createElement("div"); text.textContent = content;
-        div.appendChild(label); div.appendChild(text);
-        transcriptLog.appendChild(div);
-        transcriptLog.scrollTop = transcriptLog.scrollHeight;
-      }
+
+    // Pending tool names — flushed as a grouped pill row when a non-tool event arrives
+    let pendingTools = [];
+    let toolFlushTimer = null;
+
+    function scrollFeed() {
+      unifiedFeed.scrollTop = unifiedFeed.scrollHeight;
     }
+
+    function flushTools() {
+      clearTimeout(toolFlushTimer);
+      toolFlushTimer = null;
+      if (!pendingTools.length) return;
+      const tools = pendingTools.splice(0);
+      feedEmpty.style.display = "none";
+      const row = document.createElement("div");
+      row.className = "feed-tools";
+      row.innerHTML = tools.map(t => `<span class="feed-tool-chip">🛠 ${t}</span>`).join("");
+      unifiedFeed.appendChild(row);
+      scrollFeed();
+    }
+
+    function appendFeedEvent({ role, content, detail }) {
+      if (!content || !content.trim()) return;
+
+      if (role === "tool") {
+        // Accumulate tools and flush after a short pause (groups rapid consecutive calls)
+        pendingTools.push(content.replace(/\(.*\)$/, ""));
+        clearTimeout(toolFlushTimer);
+        toolFlushTimer = setTimeout(flushTools, 400);
+        return;
+      }
+
+      // Any non-tool event: flush pending tools first
+      flushTools();
+      feedEmpty.style.display = "none";
+
+      if (role === "user" || role === "assistant") {
+        const div = document.createElement("div");
+        div.className = `transcript-msg ${role}`;
+        const label = document.createElement("div");
+        label.className = "transcript-role";
+        label.textContent = role === "user" ? "You" : "Reachy";
+        const text = document.createElement("div");
+        text.textContent = content;
+        div.appendChild(label);
+        div.appendChild(text);
+        unifiedFeed.appendChild(div);
+
+      } else if (role === "memory") {
+        // Expandable memory chip — shows count/user, expands to full context
+        const chip = document.createElement("div");
+        chip.className = "feed-session-chip";
+        const hasDetail = detail && detail.trim();
+        chip.innerHTML = `<span class="feed-chip-label">${content}</span>${hasDetail ? ' <span class="feed-chip-expand">▸ show</span>' : ''}`;
+        if (hasDetail) {
+          const pre = document.createElement("pre");
+          pre.className = "feed-memory-detail hidden";
+          pre.textContent = detail;
+          chip.appendChild(pre);
+          chip.querySelector(".feed-chip-expand").addEventListener("click", (e) => {
+            e.stopPropagation();
+            const open = !pre.classList.contains("hidden");
+            pre.classList.toggle("hidden", open);
+            chip.querySelector(".feed-chip-expand").textContent = open ? "▸ show" : "▾ hide";
+          });
+        }
+        unifiedFeed.appendChild(chip);
+
+      } else if (role === "search") {
+        const chip = document.createElement("div");
+        chip.className = "feed-session-chip";
+        chip.innerHTML = `<span class="feed-chip-label">🔍 ${content}</span>`;
+        unifiedFeed.appendChild(chip);
+
+      } else {
+        // sleep/awake and other session events
+        const chip = document.createElement("div");
+        chip.className = "feed-session-chip";
+        chip.innerHTML = `<span class="feed-chip-label">${content}</span>`;
+        unifiedFeed.appendChild(chip);
+      }
+
+      scrollFeed();
+    }
+
     const es = new EventSource("/stream/transcript");
-    es.onmessage = (event) => { try { appendTranscriptMessage(JSON.parse(event.data)); } catch {} };
+    es.onmessage = (event) => { try { appendFeedEvent(JSON.parse(event.data)); } catch {} };
     es.onopen = () => { monitorChip.textContent = "Live"; monitorChip.className = "chip chip-ok"; };
     es.onerror = () => { monitorChip.textContent = "Reconnecting…"; monitorChip.className = "chip"; };
 
