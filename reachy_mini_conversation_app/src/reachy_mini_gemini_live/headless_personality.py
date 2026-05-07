@@ -11,14 +11,21 @@ from __future__ import annotations
 from typing import List
 from pathlib import Path
 
-from .config import DEFAULT_PROFILES_DIRECTORY
+from .config import DEFAULT_PROFILES_DIRECTORY, config
 
 
 DEFAULT_OPTION = "(built-in default)"
 
 
+def _user_profiles_root() -> Path | None:
+    """Return the user-configured profiles dir (survives updates), or None."""
+    p = config.PROFILES_DIRECTORY
+    return p if p != DEFAULT_PROFILES_DIRECTORY else None
+
+
 def _profiles_root() -> Path:
-    return DEFAULT_PROFILES_DIRECTORY
+    """Where to write new/edited profiles — user dir when configured, built-in otherwise."""
+    return _user_profiles_root() or DEFAULT_PROFILES_DIRECTORY
 
 
 def _prompts_dir() -> Path:
@@ -39,22 +46,38 @@ def _sanitize_name(name: str) -> str:
 
 
 def list_personalities() -> List[str]:
-    """List available personality profile names."""
-    names: List[str] = []
-    root = _profiles_root()
-    try:
-        if root.exists():
-            for p in sorted(root.iterdir()):
-                if p.is_dir() and (p / "instructions.txt").exists():
-                    names.append(p.name)
-    except Exception:
-        pass
-    return names
+    """List profiles from both the built-in dir and the user dir (deduped, user takes priority)."""
+    seen: dict[str, Path] = {}
+    user_root = _user_profiles_root()
+    # Built-in profiles first (lower priority)
+    for root in [DEFAULT_PROFILES_DIRECTORY]:
+        try:
+            if root and root.exists():
+                for p in sorted(root.iterdir()):
+                    if p.is_dir() and (p / "instructions.txt").exists():
+                        seen[p.name] = p
+        except Exception:
+            pass
+    # User profiles second — override built-in if same name
+    if user_root:
+        try:
+            if user_root.exists():
+                for p in sorted(user_root.iterdir()):
+                    if p.is_dir() and (p / "instructions.txt").exists():
+                        seen[p.name] = p
+        except Exception:
+            pass
+    return sorted(seen.keys())
 
 
 def resolve_profile_dir(selection: str) -> Path:
-    """Resolve the directory path for the given profile selection."""
-    return _profiles_root() / selection
+    """Resolve profile dir — user dir takes priority over built-in."""
+    user_root = _user_profiles_root()
+    if user_root:
+        candidate = user_root / selection
+        if candidate.is_dir():
+            return candidate
+    return DEFAULT_PROFILES_DIRECTORY / selection
 
 
 def read_instructions_for(name: str) -> str:
