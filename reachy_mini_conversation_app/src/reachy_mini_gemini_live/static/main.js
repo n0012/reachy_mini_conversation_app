@@ -200,7 +200,17 @@ async function init() {
   const setupLocation = document.getElementById("setup-gcp-location");
   if (setupLocation && !setupLocation.value) setupLocation.value = "us-central1";
 
-  const st = (await waitForStatus()) || { setup_complete: false };
+  const st = await waitForStatus(30000);
+
+  // If the server didn't respond within 30s the app is still starting up —
+  // auto-reload rather than showing the setup wizard (which only confuses
+  // users who are already configured).
+  if (!st) {
+    const loadingText = document.querySelector("#loading p");
+    if (loadingText) loadingText.textContent = "Starting up… reloading shortly";
+    setTimeout(() => window.location.reload(), 4000);
+    return;
+  }
 
   const voices = await getVoices();
   const styles = await getVoiceStyles();
