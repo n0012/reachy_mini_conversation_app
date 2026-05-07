@@ -520,34 +520,114 @@ async function init() {
 
     let pendingCompactPlan = null;
 
+    function updateCompactSummary(actions) {
+      const accepted = actions.filter(a => a._accepted).length;
+      compactSummary.textContent = `${accepted} of ${actions.length} action${actions.length === 1 ? "" : "s"} selected`;
+    }
+
     function renderCompactPlan(result) {
       compactList.innerHTML = "";
       const actions = result.proposed || [];
-      pendingCompactPlan = actions;  // remember exactly what the user is about to approve
-      compactSummary.textContent = `Analyzed ${result.analyzed} memories. ${result.summary || ""} (${actions.length} action${actions.length === 1 ? "" : "s"} proposed)`;
+      // Attach acceptance state to each action
+      actions.forEach(a => { a._accepted = true; a._editedFact = null; });
+      pendingCompactPlan = actions;
+
       if (!actions.length) {
+        compactSummary.textContent = `Analyzed ${result.analyzed} memories — nothing to compact.`;
         compactApplyBar.classList.add("hidden");
         return;
       }
+      updateCompactSummary(actions);
+
+      const isDelete = a => a.type === "delete";
+      const accentColor = a => isDelete(a) ? "#e57373" : "#80cbc4";
+      const dimColor = a => isDelete(a) ? "#ef9a9a" : "#80cbc4";
+
       for (const a of actions) {
         const row = document.createElement("div");
-        row.style.cssText = "padding:6px 8px;border-left:2px solid " + (a.type === "delete" ? "#e57373" : "#80cbc4") + ";background:rgba(255,255,255,0.03);border-radius:4px";
+        row.style.cssText = `padding:8px 10px;border-left:2px solid ${accentColor(a)};background:rgba(255,255,255,0.03);border-radius:4px`;
+
+        // Header row
         const head = document.createElement("div");
-        head.style.cssText = "font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:0.5px;color:" + (a.type === "delete" ? "#ef9a9a" : "#80cbc4");
-        head.textContent = `${a.type} — ${a.reason || "no reason"}`;
+        head.style.cssText = `display:flex;align-items:center;justify-content:space-between;gap:8px`;
+        const label = document.createElement("span");
+        label.style.cssText = `font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:0.5px;color:${dimColor(a)}`;
+        label.textContent = `${a.type} — ${a.reason || ""}`;
+        head.appendChild(label);
+
+        // Accept / Skip buttons
+        const btns = document.createElement("span");
+        btns.style.cssText = "display:flex;gap:4px;flex-shrink:0";
+        const acceptBtn = document.createElement("button");
+        acceptBtn.style.cssText = "margin:0;padding:2px 8px;font-size:11px;border-radius:4px";
+        const skipBtn = document.createElement("button");
+        skipBtn.style.cssText = "margin:0;padding:2px 8px;font-size:11px;border-radius:4px";
+
+        function refreshBtns() {
+          if (a._accepted) {
+            acceptBtn.textContent = "✓ Accept";
+            acceptBtn.style.opacity = "1";
+            skipBtn.textContent = "Skip";
+            skipBtn.className = "ghost";
+            skipBtn.style.opacity = "0.5";
+          } else {
+            acceptBtn.textContent = "Accept";
+            acceptBtn.className = "ghost";
+            acceptBtn.style.opacity = "0.5";
+            skipBtn.textContent = "✗ Skipped";
+            skipBtn.style.opacity = "1";
+          }
+        }
+        refreshBtns();
+        acceptBtn.addEventListener("click", () => { a._accepted = true; refreshBtns(); updateCompactSummary(actions); });
+        skipBtn.addEventListener("click", () => { a._accepted = false; refreshBtns(); updateCompactSummary(actions); });
+        btns.appendChild(acceptBtn);
+        btns.appendChild(skipBtn);
+        head.appendChild(btns);
         row.appendChild(head);
+
+        // Source facts
         for (const f of (a.facts || [])) {
           const li = document.createElement("div");
-          li.style.cssText = "color:var(--muted);margin-top:2px";
+          li.style.cssText = "color:var(--muted);margin-top:3px;font-size:12px";
           li.textContent = "• " + f;
           row.appendChild(li);
         }
+
+        // Merge result (editable)
         if (a.new_fact) {
-          const merge = document.createElement("div");
-          merge.style.cssText = "color:var(--accent-2);margin-top:4px";
-          merge.textContent = "→ " + a.new_fact;
-          row.appendChild(merge);
+          const mergeRow = document.createElement("div");
+          mergeRow.style.cssText = "display:flex;align-items:flex-start;gap:6px;margin-top:5px";
+          const mergePreview = document.createElement("div");
+          mergePreview.style.cssText = "color:var(--accent-2);font-size:12px;flex:1";
+          mergePreview.textContent = "→ " + (a._editedFact ?? a.new_fact);
+          const editBtn = document.createElement("button");
+          editBtn.className = "ghost";
+          editBtn.style.cssText = "margin:0;padding:2px 7px;font-size:11px;flex-shrink:0";
+          editBtn.textContent = "✏️";
+          editBtn.title = "Edit merged fact";
+          mergeRow.appendChild(mergePreview);
+          mergeRow.appendChild(editBtn);
+          row.appendChild(mergeRow);
+
+          const ta = document.createElement("textarea");
+          ta.style.cssText = "display:none;width:100%;margin-top:5px;font-size:12px;border-radius:6px;padding:6px 8px;background:rgba(0,0,0,0.3);border:1px solid var(--border);color:var(--text);resize:vertical;box-sizing:border-box";
+          ta.rows = 3;
+          ta.value = a.new_fact;
+          ta.addEventListener("input", () => {
+            a._editedFact = ta.value;
+            mergePreview.textContent = "→ " + ta.value;
+            a._accepted = true; refreshBtns(); updateCompactSummary(actions);
+          });
+          editBtn.addEventListener("click", () => {
+            const open = ta.style.display === "none";
+            ta.style.display = open ? "block" : "none";
+            editBtn.textContent = open ? "✏️ done" : "✏️";
+            if (open) ta.focus();
+          });
+          row.appendChild(ta);
         }
+
         compactList.appendChild(row);
       }
       compactApplyBar.classList.remove("hidden");
@@ -585,20 +665,24 @@ async function init() {
     });
 
     compactApplyBtn.addEventListener("click", async () => {
-      if (!pendingCompactPlan || pendingCompactPlan.length === 0) {
-        compactApplyStatus.textContent = "Nothing to apply.";
-        return;
-      }
+      if (!pendingCompactPlan) { compactApplyStatus.textContent = "Nothing to apply."; return; }
+      // Only send accepted actions; substitute edited merge facts
+      const selected = pendingCompactPlan
+        .filter(a => a._accepted)
+        .map(a => {
+          if (a._editedFact !== null && a._editedFact !== undefined) {
+            return { ...a, new_fact: a._editedFact };
+          }
+          return a;
+        });
+      if (!selected.length) { compactApplyStatus.textContent = "Nothing selected — toggle some ✓ to apply."; return; }
       compactApplyBtn.disabled = true;
-      compactApplyStatus.textContent = "Applying…";
+      compactApplyStatus.textContent = `Applying ${selected.length} action${selected.length === 1 ? "" : "s"}…`;
       try {
-        // Send the EXACT plan from the dry-run back to the server so it executes
-        // what the user just approved, instead of re-analyzing (which would race
-        // with the prior apply and find different work).
         const resp = await fetch("/memory/compact", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ dry_run: false, plan: pendingCompactPlan }),
+          body: JSON.stringify({ dry_run: false, plan: selected }),
         });
         const data = await resp.json();
         if (data.error) {
