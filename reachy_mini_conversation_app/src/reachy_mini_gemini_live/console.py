@@ -786,8 +786,12 @@ class LocalStream:
                             content if len(content) < 500 else content[:500] + "…",
                         )
                         role = msg.get("role")
-                        if role in ("user", "assistant", "tool", "search", "memory") and content.strip():
-                            self._transcript_buffer.append({"role": role, "content": content})
+                        if role in ("user", "assistant", "tool", "search", "memory", "recall_result") and content.strip():
+                            entry = {"role": role, "content": content}
+                            detail = msg.get("detail")
+                            if detail:
+                                entry["detail"] = detail
+                            self._transcript_buffer.append(entry)
 
             elif isinstance(handler_output, tuple):
                 input_sample_rate, audio_data = handler_output

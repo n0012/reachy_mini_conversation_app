@@ -492,6 +492,21 @@ button.ghost:hover { border-color: rgba(94, 240, 193, 0.4); }
 }
 
 /* Session event chip — memory, search, sleep/wake */
+/* Recall result card */
+.feed-recall-card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+.feed-recall-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
 .feed-session-chip {
   align-self: center;
   font-size: 11px;

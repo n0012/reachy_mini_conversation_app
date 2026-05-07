@@ -210,10 +210,12 @@ class GeminiLiveHandler(AsyncStreamHandler):
         if not transcript:
             return
 
-        # Skip assistant messages that are raw JSON tool echoes (e.g. dance result)
-        if role == "assistant" and transcript.startswith("{") and transcript.endswith("}"):
-            logger.debug("Dropping JSON tool echo from transcript: %.80s", transcript)
-            return
+        # Skip assistant messages that are raw JSON tool echoes (e.g. dance/recall result)
+        if role == "assistant":
+            stripped = transcript.strip()
+            if stripped.startswith(("{", "[{")) and stripped.endswith(("}", "}")):
+                logger.debug("Dropping JSON tool echo from transcript: %.80s", transcript)
+                return
 
         self._session_transcript.append({"role": role, "content": transcript})
         await self.output_queue.put(AdditionalOutputs({"role": role, "content": transcript}))
@@ -610,6 +612,26 @@ class GeminiLiveHandler(AsyncStreamHandler):
                 fact = tool_result.get("fact", "")
                 preview = fact[:60] + "…" if len(fact) > 60 else fact
                 await self.output_queue.put(AdditionalOutputs({"role": "memory", "content": f"saved: {preview}"}))
+
+            if bg_tool.tool_name == "recall" and isinstance(tool_result, dict):
+                matches = tool_result.get("matches", [])
+                query = tool_result.get("query", "")
+                count = len(matches)
+                label = f"🔎 {count} {'match' if count == 1 else 'matches'}"
+                lines = []
+                for i, m in enumerate(matches, 1):
+                    fact = m.get("fact", "")
+                    age = m.get("age_days", "")
+                    age_str = f" · {age:.0f}d ago" if isinstance(age, (int, float)) else ""
+                    mem_id = m.get("memory_id", "")
+                    short_id = mem_id.split("/memories/")[-1] if "/memories/" in mem_id else ""
+                    lines.append(f"{i}. {fact[:80]}{'…' if len(fact) > 80 else ''}{age_str}")
+                detail = f'query: "{query}"\n' + "\n".join(lines) if lines else f'query: "{query}" — no matches'
+                await self.output_queue.put(AdditionalOutputs({
+                    "role": "recall_result",
+                    "content": label,
+                    "detail": detail,
+                }))
             if bg_tool.tool_name not in {"remember", "identify_user", "do_nothing"}:
                 await self.output_queue.put(
                     AdditionalOutputs(

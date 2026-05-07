@@ -863,6 +863,29 @@ async function init() {
         }
         unifiedFeed.appendChild(chip);
 
+      } else if (role === "recall_result") {
+        // Compact recall card — shows match count, expandable fact list
+        const card = document.createElement("div");
+        card.className = "feed-recall-card";
+        const header = document.createElement("div");
+        header.className = "feed-recall-header";
+        const hasDetail = detail && detail.trim();
+        header.innerHTML = `<span>${content}</span>${hasDetail ? '<span class="feed-chip-expand">▸ show</span>' : ''}`;
+        card.appendChild(header);
+        if (hasDetail) {
+          const pre = document.createElement("pre");
+          pre.className = "feed-memory-detail hidden";
+          pre.textContent = detail;
+          card.appendChild(pre);
+          header.querySelector(".feed-chip-expand").addEventListener("click", (e) => {
+            e.stopPropagation();
+            const open = !pre.classList.contains("hidden");
+            pre.classList.toggle("hidden", open);
+            header.querySelector(".feed-chip-expand").textContent = open ? "▸ show" : "▾ hide";
+          });
+        }
+        unifiedFeed.appendChild(card);
+
       } else if (role === "search") {
         const chip = document.createElement("div");
         chip.className = "feed-session-chip";
