@@ -440,6 +440,9 @@ button.ghost:hover { border-color: rgba(94, 240, 193, 0.4); }
 
 /* Monitor panel — unified feed */
 #unified-feed {
+  height: 420px;
+  overflow-y: auto;
+  scroll-behavior: smooth;
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
 }

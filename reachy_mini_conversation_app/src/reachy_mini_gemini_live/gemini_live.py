@@ -210,6 +210,11 @@ class GeminiLiveHandler(AsyncStreamHandler):
         if not transcript:
             return
 
+        # Skip assistant messages that are raw JSON tool echoes (e.g. dance result)
+        if role == "assistant" and transcript.startswith("{") and transcript.endswith("}"):
+            logger.debug("Dropping JSON tool echo from transcript: %.80s", transcript)
+            return
+
         self._session_transcript.append({"role": role, "content": transcript})
         await self.output_queue.put(AdditionalOutputs({"role": role, "content": transcript}))
 
@@ -822,19 +827,17 @@ class GeminiLiveHandler(AsyncStreamHandler):
                                     await self._mark_model_response_started()
                                     self._pending_assistant_transcript_chunks.append(transcript)
 
-                                # Log grounding metadata when Google Search was used
-                                if getattr(content, "grounding_metadata", None):
-                                    gm = content.grounding_metadata
-                                    queries = getattr(gm, "web_search_queries", None) or getattr(gm, "search_queries", None) or []
-                                    chunks = getattr(gm, "grounding_chunks", None) or []
-                                    sources = [getattr(c, "web", None) for c in chunks if getattr(c, "web", None)]
-                                    source_uris = [getattr(s, "uri", "?") for s in sources][:3]
-                                    logger.warning(
-                                        "Google Search used — queries=%r sources=%s",
-                                        list(queries),
-                                        source_uris,
-                                    )
+                                # Detect Google Search grounding — try both content and response
+                                gm = (getattr(content, "grounding_metadata", None) or
+                                      getattr(response, "grounding_metadata", None))
+                                if gm:
+                                    queries = (getattr(gm, "web_search_queries", None)
+                                               or getattr(gm, "search_queries", None) or [])
                                     q_str = ", ".join(f'"{q}"' for q in list(queries)[:2])
+                                    logger.warning(
+                                        "Google Search used — queries=%r gm_type=%s",
+                                        list(queries), type(gm).__name__,
+                                    )
                                     await self.output_queue.put(
                                         AdditionalOutputs({"role": "search", "content": q_str or "search"}),
                                     )

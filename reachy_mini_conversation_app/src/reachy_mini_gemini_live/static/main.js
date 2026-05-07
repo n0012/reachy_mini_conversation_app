@@ -882,7 +882,11 @@ async function init() {
 
     const es = new EventSource("/stream/transcript");
     es.onmessage = (event) => { try { appendFeedEvent(JSON.parse(event.data)); } catch {} };
-    es.onopen = () => { monitorChip.textContent = "Live"; monitorChip.className = "chip chip-ok"; };
+    es.onopen = () => {
+      monitorChip.textContent = "Live"; monitorChip.className = "chip chip-ok";
+      // After replay finishes rendering, snap to bottom
+      setTimeout(() => { unifiedFeed.scrollTop = unifiedFeed.scrollHeight; }, 100);
+    };
     es.onerror = () => { monitorChip.textContent = "Reconnecting…"; monitorChip.className = "chip"; };
 
   } catch (e) {
