@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 # so the launcher's `pip uninstall <app-name>` succeeds. Otherwise the
 # launcher reports "Successfully uninstalled" but the package stays.
 name = "reachy_mini_gemini_live"
-version = "0.5.26"
+version = "0.5.27"
 authors = [{ name = "Nick Losier" }]
 maintainers = [{ name = "Nick Losier" }]
 description = "Reachy Mini conversation app — Gemini Live edition: per-user memory, MCP tools, Home Assistant control, offline wake word. Fork of pollen-robotics/reachy_mini_conversation_app."
