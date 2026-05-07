@@ -210,11 +210,17 @@ class GeminiLiveHandler(AsyncStreamHandler):
         if not transcript:
             return
 
-        # Skip assistant messages that are raw JSON tool echoes (e.g. dance/recall result)
+        # Drop assistant messages that are raw tool result echoes or memory context dumps.
+        # Gemini sometimes outputs tool results or injected context verbatim as text.
         if role == "assistant":
-            stripped = transcript.strip()
-            if stripped.startswith(("{", "[{")) and stripped.endswith(("}", "}")):
-                logger.debug("Dropping JSON tool echo from transcript: %.80s", transcript)
+            s = transcript.strip()
+            # Full JSON object or array
+            if (s.startswith("{") or s.startswith("[{")) and s.endswith("}"):
+                logger.debug("Dropping JSON tool echo: %.80s", s)
+                return
+            # Partial JSON / memory context fragments (starts with quoted key)
+            if s.startswith('"') and any(k in s for k in ('"fact":', '"memory_id":', '"status":', '"matches":')):
+                logger.debug("Dropping JSON fragment echo: %.80s", s)
                 return
 
         self._session_transcript.append({"role": role, "content": transcript})
@@ -632,7 +638,13 @@ class GeminiLiveHandler(AsyncStreamHandler):
                     "content": label,
                     "detail": detail,
                 }))
-            if bg_tool.tool_name not in {"remember", "identify_user", "do_nothing"}:
+            # Suppress noisy tool result assistant-echo for all known tool types
+            _SUPPRESS_CONSOLE_TOOLS = {
+                "remember", "identify_user", "do_nothing", "recall",
+                "dance", "stop_dance", "play_emotion", "stop_emotion",
+                "head_tracking", "move_head",
+            }
+            if bg_tool.tool_name not in _SUPPRESS_CONSOLE_TOOLS:
                 await self.output_queue.put(
                     AdditionalOutputs(
                         {
