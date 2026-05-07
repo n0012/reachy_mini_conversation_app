@@ -168,8 +168,12 @@
         </div>
         <div class="monitor-grid">
           <div class="monitor-camera">
-            <img id="camera-feed" src="/stream/camera" alt="Camera feed" />
-            <p class="muted small camera-label">1 fps · live</p>
+            <label style="display:flex;align-items:center;gap:7px;margin-bottom:8px;font-size:12px;color:var(--muted);cursor:pointer">
+              <input type="checkbox" id="camera-toggle" style="width:auto" />
+              Show camera feed (1 fps)
+            </label>
+            <img id="camera-feed" alt="Camera feed" style="display:none" />
+            <p class="muted small camera-label" id="camera-label" style="display:none">1 fps · live</p>
             <p class="eyebrow" style="margin:12px 0 6px">Activity</p>
             <div id="activity-log"></div>
             <p id="activity-empty" class="muted small">No activity yet.</p>

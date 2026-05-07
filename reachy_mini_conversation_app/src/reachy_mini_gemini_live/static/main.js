@@ -188,6 +188,22 @@ async function init() {
   const personalityPanel = document.getElementById("personality-panel");
   const monitorPanel = document.getElementById("monitor-panel");
   const monitorChip = document.getElementById("monitor-chip");
+  const cameraFeed = document.getElementById("camera-feed");
+  const cameraLabel = document.getElementById("camera-label");
+  const cameraToggle = document.getElementById("camera-toggle");
+  if (cameraToggle) {
+    cameraToggle.addEventListener("change", () => {
+      if (cameraToggle.checked) {
+        cameraFeed.src = "/stream/camera";
+        cameraFeed.style.display = "";
+        if (cameraLabel) cameraLabel.style.display = "";
+      } else {
+        cameraFeed.src = "";
+        cameraFeed.style.display = "none";
+        if (cameraLabel) cameraLabel.style.display = "none";
+      }
+    });
+  }
   const transcriptLog = document.getElementById("transcript-log");
   const transcriptEmpty = document.getElementById("transcript-empty");
   const activityLog = document.getElementById("activity-log");
