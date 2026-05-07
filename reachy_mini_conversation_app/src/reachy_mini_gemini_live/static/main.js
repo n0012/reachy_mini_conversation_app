@@ -180,13 +180,18 @@ function populateVoiceSelect(select, voices, styles, currentVoice) {
   }
 }
 
+function switchTab(name) {
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
+  document.querySelectorAll(".tab-pane").forEach(p => p.classList.toggle("active", p.id === `tab-${name}`));
+  try { localStorage.setItem("activeTab", name); } catch {}
+}
+
 async function init() {
   const loading = document.getElementById("loading");
   show(loading, true);
 
   const setupPanel = document.getElementById("setup-panel");
-  const personalityPanel = document.getElementById("personality-panel");
-  const monitorPanel = document.getElementById("monitor-panel");
+  const tabBar = document.getElementById("tab-bar");
   const monitorChip = document.getElementById("monitor-chip");
   const cameraFeed = document.getElementById("camera-feed");
   const cameraToggle = document.getElementById("camera-toggle");
@@ -230,11 +235,9 @@ async function init() {
   const voices = await getVoices();
   const styles = await getVoiceStyles();
 
-  // --- Setup wizard ---
+  // --- Setup wizard (no tabs) ---
   if (!st.setup_complete) {
     show(setupPanel, true);
-    show(personalityPanel, false);
-    show(monitorPanel, false);
 
     populateVoiceSelect(setupVoice, voices, styles, "Sadachbia");
 
@@ -412,7 +415,6 @@ async function init() {
 
     pSelect.addEventListener("change", loadSelected);
     await loadSelected();
-    show(personalityPanel, true);
 
     pApplyVoice.addEventListener("click", async () => {
       const voice = pVoice.value.split(" — ")[0];
@@ -614,9 +616,7 @@ async function init() {
     });
 
     // Configuration panel
-    const configDetails = document.getElementById("config-details");
     const cfgStatus = document.getElementById("cfg-status");
-    show(configDetails, true);
     const autoSleepInput = document.getElementById("cfg-auto-sleep");
     try {
       const cfgResp = await fetchWithTimeout("/config", {}, 3000);
@@ -792,8 +792,15 @@ async function init() {
     updateSleepState();
     setInterval(updateSleepState, 15000);
 
+    // ── Show tabs + restore last active tab ────────────────────────────────────
+    show(tabBar, true);
+    document.querySelectorAll(".tab-btn").forEach(btn => {
+      btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+    });
+    const savedTab = (() => { try { return localStorage.getItem("activeTab") || "monitor"; } catch { return "monitor"; } })();
+    switchTab(savedTab);
+
     // ── Unified feed ───────────────────────────────────────────────────────────
-    show(monitorPanel, true);
 
     // Pending tool names — flushed as a grouped pill row when a non-tool event arrives
     let pendingTools = [];

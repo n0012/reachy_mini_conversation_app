@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Reachy Mini Conversation – Settings</title>
+    <title>Reachy Mini Conversation</title>
     <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
@@ -13,27 +13,24 @@
       <p>Loading…</p>
     </div>
     <div class="container">
+
+      <!-- Compact header -->
       <header class="hero">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <div class="pill">Headless control</div>
           <div class="pill" id="version-pill" style="opacity:0.6;font-size:11px">v?</div>
         </div>
         <h1>Reachy Mini Conversation</h1>
-        <p class="subtitle">Configure, monitor, and manage personalities — all from your browser.</p>
       </header>
 
-      <aside class="privacy-notice" role="note" aria-label="Privacy notice">
-        <p>
-          <strong>Privacy notice:</strong>
-          Speech and camera data are sent to Gemini Live (Google) for inference. See Google's
-          <a href="https://ai.google.dev/gemini-api/docs/data-usage" target="_blank" rel="noopener">
-            Gemini API data usage policy
-          </a>
-          for details.
-        </p>
-      </aside>
+      <!-- Tab bar (hidden until configured) -->
+      <nav class="tab-bar hidden" id="tab-bar">
+        <button class="tab-btn" data-tab="monitor">Live Monitor</button>
+        <button class="tab-btn" data-tab="profiles">Profiles</button>
+        <button class="tab-btn" data-tab="config">Config</button>
+      </nav>
 
-      <!-- Setup wizard (shown when not yet configured) -->
+      <!-- Setup wizard (shown instead of tabs on first run) -->
       <div id="setup-panel" class="panel hidden">
         <div class="panel-heading">
           <div>
@@ -76,122 +73,124 @@
         </div>
       </div>
 
-      <!-- Personality studio (shown when configured) -->
-      <div id="personality-panel" class="panel hidden">
-        <div class="panel-heading">
-          <div>
-            <p class="eyebrow">Profiles</p>
-            <h2>Personality studio</h2>
-          </div>
-          <span class="chip">Live</span>
-        </div>
-
-        <!-- Profile picker + actions -->
-        <div class="row row-top" style="margin-top:4px">
-          <label for="personality-select">Profile</label>
-          <select id="personality-select"></select>
-          <button id="apply-personality" class="ghost">Apply now</button>
-          <button id="persist-personality" class="ghost">Set as startup</button>
-          <button id="new-personality" class="ghost">+ New</button>
-        </div>
-        <div class="row" style="margin-top:4px">
-          <label></label>
-          <span id="startup-label" class="chip" style="font-size:11px">Built-in default</span>
-        </div>
-
-        <!-- Edit area — always visible, loads from selection above -->
-        <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:16px">
-          <div class="row">
-            <label for="personality-name">Save as</label>
-            <input id="personality-name" type="text" placeholder="my_profile" />
-          </div>
-          <div class="row row-voice">
-            <label for="voice-select">Voice &nbsp;<a href="https://docs.cloud.google.com/vertex-ai/generative-ai/docs/live-api/configure-language-voice" target="_blank" rel="noopener" style="color:var(--accent);font-size:11px">↗ styles</a></label>
-            <select id="voice-select"></select>
-            <button id="apply-voice" class="ghost">Apply</button>
-            <button id="preview-voice" class="ghost" type="button">▶</button>
-          </div>
-          <p id="voice-style-label" class="muted small" style="grid-column:2;margin-top:-4px"></p>
-          <div class="row">
-            <label for="instructions-ta">Instructions</label>
-            <textarea id="instructions-ta" rows="8" placeholder="# Write your instructions here"></textarea>
-          </div>
-          <div class="row">
-            <label>Options</label>
-            <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;padding-top:4px">
-              <label style="display:flex;align-items:center;gap:6px;margin:0;color:var(--text)">
-                <input id="memory-check" type="checkbox" style="width:auto" /> Memory
-              </label>
-              <label style="display:flex;align-items:center;gap:6px;margin:0;color:var(--text)">
-                <input id="grounding-check" type="checkbox" style="width:auto" /> Google Search
-              </label>
-              <button id="compact-memory-btn" class="ghost" style="margin:0;padding:6px 10px;font-size:12px">🧹 Compact memories</button>
+      <!-- ── TAB: LIVE MONITOR ── -->
+      <div id="tab-monitor" class="tab-pane hidden">
+        <div class="panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Live monitor</p>
+              <h2>What Reachy sees</h2>
             </div>
-            <div id="compact-result" class="hidden" style="grid-column:1 / -1;margin-top:10px;padding:14px;border:1px solid var(--border);border-radius:8px;background:var(--bg-2)">
-              <p id="compact-summary" class="muted" style="margin:0 0 12px;font-size:13px"></p>
-              <div id="compact-actions-list" style="display:flex;flex-direction:column;gap:8px;max-height:420px;overflow-y:auto;font-size:13px"></div>
-              <div id="compact-apply-bar" class="hidden" style="margin-top:10px;display:flex;gap:8px;align-items:center">
-                <button id="compact-apply-btn" style="margin:0;padding:6px 12px;font-size:12px">Apply</button>
-                <button id="compact-cancel-btn" class="ghost" style="margin:0;padding:6px 12px;font-size:12px">Cancel</button>
-                <span id="compact-apply-status" class="muted small"></span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span id="monitor-chip" class="chip">Connecting…</span>
+              <button id="wake-btn" class="hidden" style="margin:0;padding:8px 14px;font-size:12px">▶ Wake</button>
+              <button id="sleep-btn" class="ghost hidden" style="margin:0;padding:8px 14px;font-size:12px">😴 Sleep</button>
+            </div>
+          </div>
+          <!-- Camera (hidden by default) -->
+          <div id="camera-section" style="margin-bottom:10px">
+            <label style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);cursor:pointer">
+              <input type="checkbox" id="camera-toggle" style="width:auto" />
+              Show camera feed (1 fps)
+            </label>
+            <img id="camera-feed" alt="Camera feed" style="display:none;width:100%;border-radius:10px;margin-top:8px" />
+          </div>
+          <!-- Unified conversation + activity feed -->
+          <div id="unified-feed" style="display:flex;flex-direction:column;gap:6px"></div>
+          <p id="feed-empty" class="muted small" style="margin-top:8px">Waiting for conversation…</p>
+        </div>
+      </div>
+
+      <!-- ── TAB: PROFILES ── -->
+      <div id="tab-profiles" class="tab-pane hidden">
+        <div id="personality-panel" class="panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Profiles</p>
+              <h2>Personality studio</h2>
+            </div>
+            <span class="chip">Live</span>
+          </div>
+
+          <div class="row row-top" style="margin-top:4px">
+            <label for="personality-select">Profile</label>
+            <select id="personality-select"></select>
+            <button id="apply-personality" class="ghost">Apply now</button>
+            <button id="persist-personality" class="ghost">Set as startup</button>
+            <button id="new-personality" class="ghost">+ New</button>
+          </div>
+          <div class="row" style="margin-top:4px">
+            <label></label>
+            <span id="startup-label" class="chip" style="font-size:11px">Built-in default</span>
+          </div>
+
+          <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:16px">
+            <div class="row">
+              <label for="personality-name">Save as</label>
+              <input id="personality-name" type="text" placeholder="my_profile" />
+            </div>
+            <div class="row row-voice">
+              <label for="voice-select">Voice &nbsp;<a href="https://docs.cloud.google.com/vertex-ai/generative-ai/docs/live-api/configure-language-voice" target="_blank" rel="noopener" style="color:var(--accent);font-size:11px">↗ styles</a></label>
+              <select id="voice-select"></select>
+              <button id="apply-voice" class="ghost">Apply</button>
+              <button id="preview-voice" class="ghost" type="button">▶</button>
+            </div>
+            <p id="voice-style-label" class="muted small" style="grid-column:2;margin-top:-4px"></p>
+            <div class="row">
+              <label for="instructions-ta">Instructions</label>
+              <textarea id="instructions-ta" rows="8" placeholder="# Write your instructions here"></textarea>
+            </div>
+            <div class="row">
+              <label>Options</label>
+              <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;padding-top:4px">
+                <label style="display:flex;align-items:center;gap:6px;margin:0;color:var(--text)">
+                  <input id="memory-check" type="checkbox" style="width:auto" /> Memory
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;margin:0;color:var(--text)">
+                  <input id="grounding-check" type="checkbox" style="width:auto" /> Google Search
+                </label>
+                <button id="compact-memory-btn" class="ghost" style="margin:0;padding:6px 10px;font-size:12px">🧹 Compact memories</button>
+              </div>
+              <div id="compact-result" class="hidden" style="grid-column:1 / -1;margin-top:10px;padding:14px;border:1px solid var(--border);border-radius:8px;background:var(--bg-2)">
+                <p id="compact-summary" class="muted" style="margin:0 0 12px;font-size:13px"></p>
+                <div id="compact-actions-list" style="display:flex;flex-direction:column;gap:8px;max-height:420px;overflow-y:auto;font-size:13px"></div>
+                <div id="compact-apply-bar" class="hidden" style="margin-top:10px;display:flex;gap:8px;align-items:center">
+                  <button id="compact-apply-btn" style="margin:0;padding:6px 12px;font-size:12px">Apply</button>
+                  <button id="compact-cancel-btn" class="ghost" style="margin:0;padding:6px 12px;font-size:12px">Cancel</button>
+                  <span id="compact-apply-status" class="muted small"></span>
+                </div>
               </div>
             </div>
-          </div>
-          <div class="row">
-            <label for="tools-available">Tools</label>
-            <div id="tools-available" class="checkbox-grid"></div>
-          </div>
-          <div class="row">
-            <label for="mcp-ta">MCP Servers</label>
-            <textarea id="mcp-ta" rows="3" placeholder='[{"name": "weather", "transport": "sse", "url": "http://..."}]'></textarea>
-          </div>
-          <div class="row">
-            <label for="tools-ta">tools.txt <span class="muted small">(raw)</span></label>
-            <textarea id="tools-ta" rows="4" placeholder="# tools enabled for this profile"></textarea>
-          </div>
-          <div class="actions" style="margin-top:12px">
-            <button id="save-personality">Save profile</button>
-            <p id="personality-status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
+            <div class="row">
+              <label for="tools-available">Tools</label>
+              <div id="tools-available" class="checkbox-grid"></div>
+            </div>
+            <div class="row">
+              <label for="mcp-ta">MCP Servers</label>
+              <textarea id="mcp-ta" rows="3" placeholder='[{"name": "weather", "transport": "sse", "url": "http://..."}]'></textarea>
+            </div>
+            <div class="row">
+              <label for="tools-ta">tools.txt <span class="muted small">(raw)</span></label>
+              <textarea id="tools-ta" rows="4" placeholder="# tools enabled for this profile"></textarea>
+            </div>
+            <div class="actions" style="margin-top:12px">
+              <button id="save-personality">Save profile</button>
+              <p id="personality-status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- Live monitor -->
-      <div id="monitor-panel" class="panel hidden">
-        <div class="panel-heading">
-          <div>
-            <p class="eyebrow">Live monitor</p>
-            <h2>What Reachy sees</h2>
+      <!-- ── TAB: CONFIG ── -->
+      <div id="tab-config" class="tab-pane hidden">
+        <div class="panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">GCP Configuration</p>
+              <h2>Credentials &amp; endpoints</h2>
+            </div>
+            <span id="config-chip" class="chip chip-ok">Configured</span>
           </div>
-          <div style="display:flex;gap:8px;align-items:center">
-            <span id="monitor-chip" class="chip">Connecting…</span>
-            <button id="wake-btn" class="hidden" style="margin:0;padding:8px 14px;font-size:12px">▶ Wake</button>
-            <button id="sleep-btn" class="ghost hidden" style="margin:0;padding:8px 14px;font-size:12px">😴 Sleep</button>
-          </div>
-        </div>
-        <!-- Camera (hidden by default) -->
-        <div id="camera-section" style="margin-bottom:10px">
-          <label style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);cursor:pointer">
-            <input type="checkbox" id="camera-toggle" style="width:auto" />
-            Show camera feed (1 fps)
-          </label>
-          <img id="camera-feed" alt="Camera feed" style="display:none;width:100%;border-radius:10px;margin-top:8px" />
-        </div>
-        <!-- Unified conversation + activity feed -->
-        <div id="unified-feed" style="display:flex;flex-direction:column;gap:6px;max-height:420px;overflow-y:auto"></div>
-        <p id="feed-empty" class="muted small" style="margin-top:8px">Waiting for conversation…</p>
-      </div>
-
-      <!-- Configuration (post-setup, collapsible) -->
-      <details id="config-details" class="panel hidden" style="padding:0">
-        <summary style="padding:18px 18px 16px;cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between">
-          <div>
-            <p class="eyebrow" style="margin:0">GCP Configuration</p>
-            <span style="font-size:15px;font-weight:600;color:var(--text)">Credentials &amp; endpoints</span>
-          </div>
-          <span id="config-chip" class="chip chip-ok">Configured</span>
-        </summary>
-        <div style="padding:0 18px 18px">
           <div class="row">
             <label for="cfg-gemini-key">Gemini API Key <span class="muted small">(leave blank to keep existing)</span></label>
             <input id="cfg-gemini-key" type="password" placeholder="AIza…" autocomplete="off" />
@@ -241,8 +240,21 @@
               <p id="env-status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
             </div>
           </div>
+
+          <div style="border-top:1px solid var(--border);margin-top:18px;padding-top:14px">
+            <aside class="privacy-notice" role="note" aria-label="Privacy notice">
+              <p>
+                <strong>Privacy notice:</strong>
+                Speech and camera data are sent to Gemini Live (Google) for inference. See Google's
+                <a href="https://ai.google.dev/gemini-api/docs/data-usage" target="_blank" rel="noopener">
+                  Gemini API data usage policy
+                </a>
+                for details.
+              </p>
+            </aside>
+          </div>
         </div>
-      </details>
+      </div>
 
     </div>
 
