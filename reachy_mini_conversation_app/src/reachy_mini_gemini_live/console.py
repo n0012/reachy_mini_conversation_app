@@ -163,12 +163,17 @@ class LocalStream:
 
     @staticmethod
     def _is_setup_complete() -> bool:
-        """Return True when all required config is present to run the app."""
+        """Return True when the robot has been configured at least once.
+
+        The .env file's existence is the primary signal — if it's there the
+        user has either run the wizard or migrated from a previous install.
+        Only the Gemini API key is checked as a minimum sanity guard; the
+        GCP/SA fields are optional (configurable via the settings panel later).
+        """
+        from reachy_mini_gemini_live.config import REACHY_MINI_ENV_PATH
         return (
-            bool(os.environ.get("GEMINI_API_KEY", "").strip())
-            and bool(os.environ.get("GCP_PROJECT_ID", "").strip())
-            and bool(os.environ.get("VERTEX_REASONING_ENGINE_ID", "").strip())
-            and bool(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip())
+            REACHY_MINI_ENV_PATH.exists()
+            and bool(os.environ.get("GEMINI_API_KEY", "").strip())
         )
 
     def _persist_env_value(self, env_name: str, value: str) -> None:
