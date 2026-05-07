@@ -800,6 +800,30 @@ async function init() {
     const savedTab = (() => { try { return localStorage.getItem("activeTab") || "monitor"; } catch { return "monitor"; } })();
     switchTab(savedTab);
 
+    // ── Memory tab: populate user chip + stats from session status ──────────────
+    const memUserChip = document.getElementById("memory-user-chip");
+    const memStatCount = document.getElementById("mem-stat-count");
+    const memStatProfile = document.getElementById("mem-stat-profile");
+    try {
+      const sessResp = await fetchWithTimeout("/session/status", {}, 3000);
+      if (sessResp.ok) {
+        const sess = await sessResp.json();
+        const user = sess.active_user || sess.user_id || "—";
+        const profile = sess.profile || "—";
+        if (memUserChip) memUserChip.textContent = user;
+        if (memStatProfile) memStatProfile.textContent = `profile: ${profile}`;
+      }
+    } catch {}
+    // Memory count: fetch from /memories/list if available
+    try {
+      const mResp = await fetchWithTimeout("/memory/list", {}, 3000);
+      if (mResp.ok) {
+        const mData = await mResp.json();
+        const count = mData.total ?? (Array.isArray(mData.memories) ? mData.memories.length : null);
+        if (count !== null && memStatCount) memStatCount.textContent = `${count} memories`;
+      }
+    } catch {}
+
     // ── Unified feed ───────────────────────────────────────────────────────────
 
     // Pending tool names — flushed as a grouped pill row when a non-tool event arrives

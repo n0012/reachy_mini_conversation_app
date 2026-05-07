@@ -26,6 +26,7 @@
       <!-- Tab bar (hidden until configured) -->
       <nav class="tab-bar hidden" id="tab-bar">
         <button class="tab-btn" data-tab="monitor">Live Monitor</button>
+        <button class="tab-btn" data-tab="memory">Memory</button>
         <button class="tab-btn" data-tab="profiles">Profiles</button>
         <button class="tab-btn" data-tab="config">Config</button>
       </nav>
@@ -101,6 +102,41 @@
         </div>
       </div>
 
+      <!-- ── TAB: MEMORY ── -->
+      <div id="tab-memory" class="tab-pane hidden">
+        <div class="panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Memory bank</p>
+              <h2>User memories</h2>
+            </div>
+            <span id="memory-user-chip" class="chip">—</span>
+          </div>
+
+          <!-- Memory stats row -->
+          <div id="memory-stats" style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;font-size:13px;color:var(--muted)">
+            <span id="mem-stat-count">— memories</span>
+            <span id="mem-stat-profile">profile: —</span>
+          </div>
+
+          <!-- Compact memories -->
+          <div style="border-top:1px solid var(--border);padding-top:14px">
+            <p class="eyebrow" style="margin:0 0 6px">Maintenance</p>
+            <p class="muted small" style="margin:0 0 12px">LLM-driven dedup — merges overlapping facts, deletes contradictions. Shows a preview before making any changes.</p>
+            <button id="compact-memory-btn" class="ghost" style="margin:0;padding:8px 14px;font-size:13px">🧹 Compact memories</button>
+            <div id="compact-result" class="hidden" style="margin-top:14px;padding:14px;border:1px solid var(--border);border-radius:8px;background:var(--bg-2)">
+              <p id="compact-summary" class="muted" style="margin:0 0 12px;font-size:13px"></p>
+              <div id="compact-actions-list" style="display:flex;flex-direction:column;gap:8px;max-height:420px;overflow-y:auto;font-size:13px"></div>
+              <div id="compact-apply-bar" class="hidden" style="margin-top:10px;display:flex;gap:8px;align-items:center">
+                <button id="compact-apply-btn" style="margin:0;padding:6px 12px;font-size:12px">Apply</button>
+                <button id="compact-cancel-btn" class="ghost" style="margin:0;padding:6px 12px;font-size:12px">Cancel</button>
+                <span id="compact-apply-status" class="muted small"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- ── TAB: PROFILES ── -->
       <div id="tab-profiles" class="tab-pane hidden">
         <div id="personality-panel" class="panel">
@@ -149,16 +185,6 @@
                 <label style="display:flex;align-items:center;gap:6px;margin:0;color:var(--text)">
                   <input id="grounding-check" type="checkbox" style="width:auto" /> Google Search
                 </label>
-                <button id="compact-memory-btn" class="ghost" style="margin:0;padding:6px 10px;font-size:12px">🧹 Compact memories</button>
-              </div>
-              <div id="compact-result" class="hidden" style="grid-column:1 / -1;margin-top:10px;padding:14px;border:1px solid var(--border);border-radius:8px;background:var(--bg-2)">
-                <p id="compact-summary" class="muted" style="margin:0 0 12px;font-size:13px"></p>
-                <div id="compact-actions-list" style="display:flex;flex-direction:column;gap:8px;max-height:420px;overflow-y:auto;font-size:13px"></div>
-                <div id="compact-apply-bar" class="hidden" style="margin-top:10px;display:flex;gap:8px;align-items:center">
-                  <button id="compact-apply-btn" style="margin:0;padding:6px 12px;font-size:12px">Apply</button>
-                  <button id="compact-cancel-btn" class="ghost" style="margin:0;padding:6px 12px;font-size:12px">Cancel</button>
-                  <span id="compact-apply-status" class="muted small"></span>
-                </div>
               </div>
             </div>
             <div class="row">
