@@ -301,6 +301,11 @@ class LocalStream:
                 pass
 
         def _status_payload() -> dict[str, object]:
+            try:
+                from importlib.metadata import version as _pkg_version
+                _ver = _pkg_version("reachy-mini-gemini-live")
+            except Exception:
+                _ver = "?"
             return {
                 "active_backend": GEMINI_BACKEND,
                 "backend_provider": GEMINI_BACKEND,
@@ -308,6 +313,7 @@ class LocalStream:
                 "can_proceed": True,
                 "requires_restart": False,
                 "setup_complete": self._is_setup_complete(),
+                "app_version": _ver,
             }
 
         # GET /session/status -> sleep/wake state

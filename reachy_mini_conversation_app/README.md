@@ -1,6 +1,6 @@
 ---
 title: Reachy Mini Gemini Live Edition
-emoji: 🤖
+emoji: ✨
 colorFrom: blue
 colorTo: purple
 sdk: static

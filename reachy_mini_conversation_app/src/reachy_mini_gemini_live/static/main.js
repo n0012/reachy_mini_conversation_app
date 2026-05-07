@@ -223,6 +223,10 @@ async function init() {
     return;
   }
 
+  // Show version in header pill
+  const versionPill = document.getElementById("version-pill");
+  if (versionPill && st.app_version) versionPill.textContent = `v${st.app_version}`;
+
   const voices = await getVoices();
   const styles = await getVoiceStyles();
 
