@@ -173,6 +173,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
         # Edge Impulse wake word detection (luisomoreau/hey_reachy_wake_word_detection)
         self._ei_thread: object | None = None
         self._ei_stop: "threading.Event | None" = None
+        self._ei_last_activity: float = 0.0
         self._ei_threshold: float = 0.7
         import pathlib as _pl
         self._ei_model_path = str(
@@ -340,8 +341,34 @@ class GeminiLiveHandler(AsyncStreamHandler):
             # Hold sleep pose — movement manager breathing fights it
             self._hold_loop_done.clear()
             asyncio.create_task(self._hold_sleep_pose(robot))
-        # Start Edge Impulse wake word detection in background thread
+        # Start Edge Impulse wake word detection + watchdog
         self._start_ei_detection(asyncio.get_event_loop())
+        asyncio.create_task(self._ei_watchdog(asyncio.get_event_loop()), name="ei-watchdog")
+
+    async def _ei_watchdog(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Restart EI detection if the audio stream freezes (pipewire routing drop).
+
+        The EI thread's stream.read() blocks indefinitely when pipewire loses
+        its route. The watchdog detects this via heartbeat staleness and restarts
+        the detection thread so wake-word never stops working silently.
+        """
+        import time as _time
+        STALE_THRESHOLD = 90.0  # seconds without audio before assuming freeze
+        CHECK_INTERVAL = 30.0
+        while self._sleeping and not self._stop_event.is_set():
+            await asyncio.sleep(CHECK_INTERVAL)
+            if not self._sleeping:
+                break
+            age = _time.monotonic() - self._ei_last_activity
+            if self._ei_last_activity > 0 and age > STALE_THRESHOLD:
+                logger.warning(
+                    "EI watchdog: no audio for %.0fs — pipewire may be frozen, restarting detection", age
+                )
+                if self._ei_stop is not None:
+                    self._ei_stop.set()
+                await asyncio.sleep(6.0)  # give thread time to exit via timeout
+                if self._sleeping and not self._stop_event.is_set():
+                    self._start_ei_detection(loop)
 
     async def _hold_sleep_pose(self, robot: object) -> None:
         """Hold sleep pose silently every 1s to counter breathing/idle animation."""
@@ -977,16 +1004,31 @@ class GeminiLiveHandler(AsyncStreamHandler):
                     slide = max(1, int(window_size * OVERLAP))
                     features = np.array([], dtype=np.int16)
 
+                    import queue as _queue
+                    import time as _time
+                    audio_q: "_queue.Queue[bytes]" = _queue.Queue(maxsize=32)
+
+                    def _audio_cb(indata: bytes, frames: int, t: object, status: object) -> None:
+                        try:
+                            audio_q.put_nowait(bytes(indata))
+                        except _queue.Full:
+                            pass
+
                     with sd.RawInputStream(
                         samplerate=native_rate,
                         channels=native_channels,
                         dtype="int16",
                         blocksize=CHUNK_SIZE,
                         device=device_id,
-                    ) as stream:
+                        callback=_audio_cb,
+                    ):
                         while not stop_event.is_set() and self._sleeping:
-                            audio_bytes, _overflow = stream.read(CHUNK_SIZE)
-                            raw = np.frombuffer(bytes(audio_bytes), dtype=np.int16)
+                            try:
+                                audio_bytes = audio_q.get(timeout=5.0)
+                            except _queue.Empty:
+                                continue  # no audio; check stop_event and loop
+                            self._ei_last_activity = _time.monotonic()
+                            raw = np.frombuffer(audio_bytes, dtype=np.int16)
                             if native_channels > 1:
                                 raw = raw.reshape(-1, native_channels).mean(axis=1).astype(np.int16)
                             if up != down:
@@ -1007,10 +1049,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
                                     if score >= self._ei_threshold:
                                         logger.info("Hey Reachy detected! score=%.3f — waking up", score)
                                         self._sleeping = False
-                                        # Stop capture before playing ack so the device
-                                        # is free for output (sounddevice will re-share
-                                        # via pipewire, but releasing first is cleaner).
-                                        stream.stop()
+                                        stop_event.set()  # exits the while loop, context manager closes stream
                                         self._play_wake_ack()
                                         asyncio.run_coroutine_threadsafe(self.wake(), loop)
                                         return
