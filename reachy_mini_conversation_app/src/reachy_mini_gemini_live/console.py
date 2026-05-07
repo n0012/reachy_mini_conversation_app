@@ -468,7 +468,7 @@ class LocalStream:
                 matches = await backend._retrieve(
                     profile, query, user_id=user_id,
                     fetch_k=50, top_k=30,
-                    with_ids=True, max_distance=0.85,
+                    with_ids=True, max_distance=1.0,
                 )
                 return JSONResponse({"matches": matches or []})
             except Exception as e:

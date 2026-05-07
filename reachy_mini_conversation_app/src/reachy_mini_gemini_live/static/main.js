@@ -1032,31 +1032,35 @@ async function init() {
         saveEditBtn.textContent = "Save edit";
       });
 
-      // Two-click delete: first click → "Really?" confirmation inline
-      delBtn.addEventListener("click", () => {
+      // Two-click delete: first click → "Confirm?" button, second → delete
+      let deleteConfirmTimer = null;
+      delBtn.addEventListener("click", async () => {
         if (delBtn.dataset.confirming) {
-          // Second click — do it
-          delBtn.textContent = "Deleting…";
+          // Second click — execute
+          clearTimeout(deleteConfirmTimer);
+          delBtn.textContent = "…";
           delBtn.disabled = true;
-          deleteMemory(m.memory_id, row, (err) => {
+          await deleteMemory(m.memory_id, row, (err) => {
             delBtn.disabled = false;
             delBtn.textContent = "Delete";
             delete delBtn.dataset.confirming;
-            delBtn.style.cssText = "margin:0;padding:3px 8px;font-size:11px;flex-shrink:0;color:#ef9a9a;border-color:#ef9a9a44";
+            delBtn.style.background = "";
           });
         } else {
-          // First click — show confirmation state
+          // First click — show confirm state
           delBtn.dataset.confirming = "1";
-          delBtn.textContent = "Really?";
-          delBtn.style.background = "#ef9a9a22";
-          // Auto-reset after 3s if user doesn't confirm
-          setTimeout(() => {
+          delBtn.textContent = "Confirm?";
+          delBtn.style.background = "#ef9a9a33";
+          delBtn.style.color = "#fff";
+          // Auto-reset after 5s
+          deleteConfirmTimer = setTimeout(() => {
             if (delBtn.dataset.confirming) {
               delete delBtn.dataset.confirming;
               delBtn.textContent = "Delete";
               delBtn.style.background = "";
+              delBtn.style.color = "";
             }
-          }, 3000);
+          }, 5000);
         }
       });
 
