@@ -441,6 +441,64 @@ class LocalStream:
                 return JSONResponse({"error": str(e)}, status_code=500)
             return JSONResponse(result)
 
+        def _get_memory_backend():
+            """Return (backend, profile, user_id) or None if memory not active."""
+            h = getattr(self, "handler", None)
+            backend = getattr(getattr(h, "deps", None), "memory_backend", None)
+            if backend is None or not getattr(h, "_memory_enabled", False):
+                return None, None, None
+            profile = h.deps.active_profile or config.REACHY_MINI_CUSTOM_PROFILE or "default"
+            user_id = getattr(h.deps, "active_user", None)
+            return backend, profile, user_id
+
+        # POST /memory/search -> semantic search over stored memories
+        @self._settings_app.post("/memory/search")
+        async def _memory_search(request: Request) -> JSONResponse:
+            body = await request.json()
+            query = (body.get("query") or "").strip()
+            if not query:
+                return JSONResponse({"error": "query required"}, status_code=400)
+            backend, profile, user_id = _get_memory_backend()
+            if backend is None:
+                return JSONResponse({"error": "Memory not enabled for the active profile."}, status_code=400)
+            try:
+                matches = await backend.search(profile, query, user_id=user_id, top_k=30, with_ids=True)
+                return JSONResponse({"matches": matches or []})
+            except Exception as e:
+                return JSONResponse({"error": str(e)}, status_code=500)
+
+        # POST /memory/add -> store a new memory fact
+        @self._settings_app.post("/memory/add")
+        async def _memory_add(request: Request) -> JSONResponse:
+            body = await request.json()
+            fact = (body.get("fact") or "").strip()
+            if not fact:
+                return JSONResponse({"error": "fact required"}, status_code=400)
+            backend, profile, user_id = _get_memory_backend()
+            if backend is None:
+                return JSONResponse({"error": "Memory not enabled for the active profile."}, status_code=400)
+            try:
+                await backend.remember(profile, fact, user_id=user_id)
+                return JSONResponse({"ok": True})
+            except Exception as e:
+                return JSONResponse({"error": str(e)}, status_code=500)
+
+        # POST /memory/delete -> delete a memory by its full resource ID
+        @self._settings_app.post("/memory/delete")
+        async def _memory_delete(request: Request) -> JSONResponse:
+            body = await request.json()
+            memory_id = (body.get("memory_id") or "").strip()
+            if not memory_id:
+                return JSONResponse({"error": "memory_id required"}, status_code=400)
+            backend, _, _ = _get_memory_backend()
+            if backend is None:
+                return JSONResponse({"error": "Memory not enabled for the active profile."}, status_code=400)
+            try:
+                await backend.delete_memory(memory_id)
+                return JSONResponse({"ok": True})
+            except Exception as e:
+                return JSONResponse({"error": str(e)}, status_code=500)
+
         # Keys managed elsewhere — excluded from the custom env var editor
         _MANAGED_KEYS = {
             "GEMINI_API_KEY", "GCP_PROJECT_ID", "GCP_LOCATION",

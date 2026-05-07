@@ -119,6 +119,30 @@
             <span id="mem-stat-profile">profile: —</span>
           </div>
 
+          <!-- Search + Edit + Delete + Add -->
+          <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:16px">
+            <p class="eyebrow" style="margin:0 0 4px">Browse &amp; manage memories</p>
+            <p class="muted small" style="margin:0 0 10px">Search for a specific memory to view, edit, or delete it. Or add a new one manually.</p>
+
+            <!-- Search row -->
+            <div style="display:flex;gap:8px;margin-bottom:10px">
+              <input id="mem-search-input" type="text" placeholder='Search: "golf", "Richie", "birthday"…' style="flex:1" />
+              <button id="mem-search-btn" style="flex-shrink:0">Search</button>
+            </div>
+            <p id="mem-search-status" class="muted small" style="margin:0 0 6px"></p>
+            <div id="mem-search-results" style="display:flex;flex-direction:column;gap:6px"></div>
+
+            <!-- Add memory -->
+            <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
+              <p class="eyebrow" style="margin:0 0 6px">Add memory manually</p>
+              <textarea id="mem-add-input" rows="2" placeholder="Nick prefers oat milk in his coffee."></textarea>
+              <div class="actions" style="margin-top:8px">
+                <button id="mem-add-btn">Add memory</button>
+                <p id="mem-add-status" class="status" role="status" aria-live="polite"></p>
+              </div>
+            </div>
+          </div>
+
           <!-- Retrieval settings -->
           <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:16px">
             <p class="eyebrow" style="margin:0 0 4px">Retrieval settings</p>

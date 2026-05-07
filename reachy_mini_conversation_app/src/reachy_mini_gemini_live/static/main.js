@@ -917,6 +917,171 @@ async function init() {
     }
     refreshMemoryCount();
 
+    // ── Memory browser: search / add / edit / delete ───────────────────────────
+    const memSearchInput = document.getElementById("mem-search-input");
+    const memSearchBtn = document.getElementById("mem-search-btn");
+    const memSearchStatus = document.getElementById("mem-search-status");
+    const memSearchResults = document.getElementById("mem-search-results");
+    const memAddInput = document.getElementById("mem-add-input");
+    const memAddBtn = document.getElementById("mem-add-btn");
+    const memAddStatus = document.getElementById("mem-add-status");
+
+    async function deleteMemory(memoryId, rowEl) {
+      try {
+        const resp = await fetch("/memory/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ memory_id: memoryId }),
+        });
+        const data = await resp.json();
+        if (data.ok) { rowEl.remove(); refreshMemoryCount(); }
+        else alert("Delete failed: " + (data.error || "unknown"));
+      } catch (e) { alert("Delete failed: " + e.message); }
+    }
+
+    function renderMemoryResult(m) {
+      const row = document.createElement("div");
+      row.className = "mem-result-row";
+
+      // Fact display (truncated, hover for full)
+      const factEl = document.createElement("div");
+      factEl.className = "feed-recall-row";
+      factEl.style.cssText = "flex:1;min-width:0";
+      const display = m.fact.length > 70 ? m.fact.slice(0, 70) + "…" : m.fact;
+      factEl.textContent = display;
+      factEl.dataset.full = m.fact;
+
+      const age = m.age_days != null ? `${Math.round(m.age_days)}d ago` : "";
+      const ageEl = document.createElement("span");
+      ageEl.style.cssText = "font-size:11px;color:var(--muted);flex-shrink:0";
+      ageEl.textContent = age;
+
+      // Edit / Delete buttons
+      const editBtn = document.createElement("button");
+      editBtn.className = "ghost";
+      editBtn.style.cssText = "margin:0;padding:3px 8px;font-size:11px;flex-shrink:0";
+      editBtn.textContent = "Edit";
+      const delBtn = document.createElement("button");
+      delBtn.className = "ghost";
+      delBtn.style.cssText = "margin:0;padding:3px 8px;font-size:11px;flex-shrink:0;color:#ef9a9a;border-color:#ef9a9a44";
+      delBtn.textContent = "Delete";
+
+      const controls = document.createElement("div");
+      controls.style.cssText = "display:flex;gap:4px;align-items:center;flex-shrink:0";
+      controls.appendChild(ageEl);
+      controls.appendChild(editBtn);
+      controls.appendChild(delBtn);
+
+      const top = document.createElement("div");
+      top.style.cssText = "display:flex;gap:8px;align-items:center";
+      top.appendChild(factEl);
+      top.appendChild(controls);
+      row.appendChild(top);
+
+      // Inline edit area (hidden by default)
+      const editArea = document.createElement("div");
+      editArea.style.display = "none";
+      const ta = document.createElement("textarea");
+      ta.rows = 3;
+      ta.value = m.fact;
+      ta.style.cssText = "width:100%;margin-top:6px;font-size:12px;box-sizing:border-box";
+      const saveEditBtn = document.createElement("button");
+      saveEditBtn.style.cssText = "margin:6px 0 0;padding:5px 12px;font-size:12px";
+      saveEditBtn.textContent = "Save edit";
+      const cancelEditBtn = document.createElement("button");
+      cancelEditBtn.className = "ghost";
+      cancelEditBtn.style.cssText = "margin:6px 0 0 6px;padding:5px 10px;font-size:12px";
+      cancelEditBtn.textContent = "Cancel";
+      editArea.appendChild(ta);
+      editArea.appendChild(saveEditBtn);
+      editArea.appendChild(cancelEditBtn);
+      row.appendChild(editArea);
+
+      editBtn.addEventListener("click", () => {
+        const open = editArea.style.display === "none";
+        editArea.style.display = open ? "block" : "none";
+        editBtn.textContent = open ? "Close" : "Edit";
+        if (open) ta.focus();
+      });
+      cancelEditBtn.addEventListener("click", () => { editArea.style.display = "none"; editBtn.textContent = "Edit"; });
+
+      saveEditBtn.addEventListener("click", async () => {
+        const newFact = ta.value.trim();
+        if (!newFact || newFact === m.fact) { editArea.style.display = "none"; editBtn.textContent = "Edit"; return; }
+        saveEditBtn.disabled = true;
+        saveEditBtn.textContent = "Saving…";
+        try {
+          // Delete old, add new
+          await fetch("/memory/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ memory_id: m.memory_id }) });
+          await fetch("/memory/add", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fact: newFact }) });
+          factEl.textContent = newFact.length > 70 ? newFact.slice(0, 70) + "…" : newFact;
+          factEl.dataset.full = newFact;
+          m.fact = newFact;
+          editArea.style.display = "none";
+          editBtn.textContent = "Edit";
+          refreshMemoryCount();
+        } catch (e) { alert("Save failed: " + e.message); }
+        saveEditBtn.disabled = false;
+        saveEditBtn.textContent = "Save edit";
+      });
+
+      delBtn.addEventListener("click", () => {
+        if (confirm(`Delete this memory?\n\n"${m.fact}"`)) deleteMemory(m.memory_id, row);
+      });
+
+      return row;
+    }
+
+    if (memSearchBtn) {
+      async function runSearch() {
+        const q = memSearchInput.value.trim();
+        if (!q) return;
+        memSearchBtn.disabled = true;
+        memSearchStatus.textContent = "Searching…";
+        memSearchResults.innerHTML = "";
+        try {
+          const resp = await fetch("/memory/search", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query: q }),
+          });
+          const data = await resp.json();
+          if (data.error) { memSearchStatus.textContent = "Error: " + data.error; return; }
+          const matches = data.matches || [];
+          memSearchStatus.textContent = `${matches.length} match${matches.length === 1 ? "" : "es"}`;
+          matches.forEach(m => memSearchResults.appendChild(renderMemoryResult(m)));
+        } catch (e) { memSearchStatus.textContent = "Failed: " + e.message; }
+        memSearchBtn.disabled = false;
+      }
+      memSearchBtn.addEventListener("click", runSearch);
+      memSearchInput.addEventListener("keydown", e => { if (e.key === "Enter") runSearch(); });
+    }
+
+    if (memAddBtn) {
+      memAddBtn.addEventListener("click", async () => {
+        const fact = memAddInput.value.trim();
+        if (!fact) return;
+        memAddBtn.disabled = true;
+        setStatusMessage(memAddStatus, "Adding…");
+        try {
+          const resp = await fetch("/memory/add", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ fact }),
+          });
+          const data = await resp.json();
+          if (data.ok) {
+            setStatusMessage(memAddStatus, "Added.", "ok");
+            memAddInput.value = "";
+            refreshMemoryCount();
+          } else {
+            setStatusMessage(memAddStatus, data.error || "Error", "error");
+          }
+        } catch (e) { setStatusMessage(memAddStatus, "Failed: " + e.message, "error"); }
+        memAddBtn.disabled = false;
+      });
+    }
+
     // ── Retrieval settings ─────────────────────────────────────────────────────
     const topKSlider = document.getElementById("mem-top-k");
     const topKVal = document.getElementById("mem-top-k-val");
