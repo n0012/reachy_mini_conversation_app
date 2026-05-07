@@ -30,8 +30,43 @@ def update_chatbot(chatbot: List[Dict[str, Any]], response: Dict[str, Any]) -> L
     return chatbot
 
 
+def _ensure_launcher_metadata() -> None:
+    """Write full cardData into the launcher's .app_metadata file so the icon shows.
+
+    The Pollen launcher reads /venvs/.app_metadata/reachy_mini_gemini_live.json
+    for display metadata (icon emoji, title, description). On a fresh install the
+    launcher only writes a minimal stub {"id": "..."}. We self-heal it on every
+    startup so reinstalls don't lose the icon.
+    """
+    try:
+        import json as _json
+        meta_path = Path("/venvs/.app_metadata/reachy_mini_gemini_live.json")
+        if not meta_path.parent.exists():
+            return
+        current = _json.loads(meta_path.read_text()) if meta_path.exists() else {}
+        if current.get("cardData", {}).get("emoji"):
+            return  # already populated
+        current.update({
+            "id": "n0012/reachy_mini_conversation_app_gemini",
+            "author": "n0012",
+            "isPythonApp": True,
+            "cardData": {
+                "emoji": "✨",
+                "title": "Reachy Mini Gemini Live Edition",
+                "short_description": "Gemini Live robot with memory, MCP tools, home control",
+                "sdk": "static",
+                "colorFrom": "blue",
+                "colorTo": "purple",
+            },
+        })
+        meta_path.write_text(_json.dumps(current, indent=2, ensure_ascii=False))
+    except Exception:
+        pass  # never crash startup over a metadata file
+
+
 def main() -> None:
     """Entrypoint for the Reachy Mini conversation app."""
+    _ensure_launcher_metadata()
     args, _ = parse_args()
     run(args)
 
