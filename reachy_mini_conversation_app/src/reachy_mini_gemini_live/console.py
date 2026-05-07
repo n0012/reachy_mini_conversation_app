@@ -462,15 +462,45 @@ class LocalStream:
             if backend is None:
                 return JSONResponse({"error": "Memory not enabled for the active profile."}, status_code=400)
             try:
-                # Use a tighter distance cutoff (0.85) for user-facing search so
-                # only genuinely relevant memories are shown — Vertex always returns
-                # top_k results regardless of relevance so we need an explicit filter.
-                matches = await backend._retrieve(
+                # Hybrid search: semantic (max_distance=1.0) + keyword text scan.
+                # Vertex embeddings don't correlate name queries ("Mia") well with
+                # short factual sentences, so keyword matching fills the gap.
+                semantic = await backend._retrieve(
                     profile, query, user_id=user_id,
                     fetch_k=50, top_k=30,
                     with_ids=True, max_distance=1.0,
                 )
-                return JSONResponse({"matches": matches or []})
+                # Keyword fallback: scan all memories for the query words
+                seen_ids = {m.get("memory_id") for m in semantic}
+                words = [w.lower().strip(".,?!") for w in query.split() if len(w) > 2]
+                keyword_matches = []
+                if words:
+                    try:
+                        from datetime import datetime, timezone
+                        now = datetime.now(timezone.utc)
+                        all_mems = await backend.list_memories(profile, user_id=user_id)
+                        for m in all_mems:
+                            mid = m.get("name", "")
+                            fact = m.get("fact", "")
+                            if mid in seen_ids or not fact:
+                                continue
+                            if any(w in fact.lower() for w in words):
+                                ts = m.get("updateTime") or m.get("createTime")
+                                age_days: float | None = None
+                                if ts:
+                                    try:
+                                        age_days = round((now - datetime.fromisoformat(ts.replace("Z", "+00:00"))).total_seconds() / 86400.0, 1)
+                                    except Exception:
+                                        pass
+                                keyword_matches.append({
+                                    "memory_id": mid,
+                                    "fact": fact,
+                                    "age_days": age_days,
+                                })
+                    except Exception:
+                        pass
+                matches = (semantic or []) + keyword_matches
+                return JSONResponse({"matches": matches})
             except Exception as e:
                 return JSONResponse({"error": str(e)}, status_code=500)
 
