@@ -110,13 +110,20 @@
               <p class="eyebrow">Memory bank</p>
               <h2>User memories</h2>
             </div>
-            <span id="memory-user-chip" class="chip">—</span>
+          </div>
+
+          <!-- Profile + user scope selector -->
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+            <label style="font-size:12px;color:var(--muted);flex-shrink:0">Profile</label>
+            <select id="mem-profile-select" style="flex:1;min-width:100px"></select>
+            <label style="font-size:12px;color:var(--muted);flex-shrink:0">User</label>
+            <select id="mem-user-select" style="flex:1;min-width:100px"></select>
+            <button id="mem-scope-refresh" class="ghost" style="margin:0;padding:6px 10px;font-size:12px" title="Refresh user list">↺</button>
           </div>
 
           <!-- Memory stats row -->
           <div id="memory-stats" style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;font-size:13px;color:var(--muted)">
             <span id="mem-stat-count">— memories</span>
-            <span id="mem-stat-profile">profile: —</span>
           </div>
 
           <!-- Search + Edit + Delete + Add -->

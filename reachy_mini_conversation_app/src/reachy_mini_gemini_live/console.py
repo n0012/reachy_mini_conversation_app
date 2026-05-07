@@ -431,9 +431,9 @@ class LocalStream:
                     {"error": "Memory not enabled for the active profile."},
                     status_code=400,
                 )
-            profile = handler.deps.active_profile or config.REACHY_MINI_CUSTOM_PROFILE or "default"
-            user_id = getattr(handler.deps, "active_user", None)
-            plan = body.get("plan")  # client may pass back the dry-run plan to apply exactly
+            profile = body.get("profile") or handler.deps.active_profile or config.REACHY_MINI_CUSTOM_PROFILE or "default"
+            user_id = body.get("user_id") or getattr(handler.deps, "active_user", None)
+            plan = body.get("plan")
             try:
                 result = await backend.compact_memories(profile, user_id=user_id, dry_run=dry_run, plan=plan)
             except Exception as e:
@@ -451,7 +451,22 @@ class LocalStream:
             user_id = getattr(h.deps, "active_user", None)
             return backend, profile, user_id
 
-        # POST /memory/search -> semantic search over stored memories
+        # GET /memory/users -> list unique user_ids that have memories in a profile
+        @self._settings_app.get("/memory/users")
+        async def _memory_users(profile: str = "") -> JSONResponse:
+            backend, active_profile, _ = _get_memory_backend()
+            if backend is None:
+                return JSONResponse({"users": [], "profile": profile or ""})
+            p = profile or active_profile
+            try:
+                all_mems = await backend.list_memories(p, profile_wide=True)
+                users = sorted({m.get("scope", {}).get("user_id", "") for m in all_mems} - {""})
+                return JSONResponse({"users": users, "profile": p})
+            except Exception as e:
+                return JSONResponse({"users": [], "error": str(e)})
+
+        # POST /memory/search -> semantic + keyword hybrid search
+        # Accepts optional user_id and profile body params to override active session scope.
         @self._settings_app.post("/memory/search")
         async def _memory_search(request: Request) -> JSONResponse:
             body = await request.json()
@@ -461,16 +476,14 @@ class LocalStream:
             backend, profile, user_id = _get_memory_backend()
             if backend is None:
                 return JSONResponse({"error": "Memory not enabled for the active profile."}, status_code=400)
+            profile = body.get("profile") or profile
+            user_id = body.get("user_id") or user_id
             try:
-                # Hybrid search: semantic (max_distance=1.0) + keyword text scan.
-                # Vertex embeddings don't correlate name queries ("Mia") well with
-                # short factual sentences, so keyword matching fills the gap.
                 semantic = await backend._retrieve(
                     profile, query, user_id=user_id,
                     fetch_k=50, top_k=30,
                     with_ids=True, max_distance=1.0,
                 )
-                # Keyword fallback: scan all memories for the query words
                 seen_ids = {m.get("memory_id") for m in semantic}
                 words = [w.lower().strip(".,?!") for w in query.split() if len(w) > 2]
                 keyword_matches = []
@@ -492,19 +505,15 @@ class LocalStream:
                                         age_days = round((now - datetime.fromisoformat(ts.replace("Z", "+00:00"))).total_seconds() / 86400.0, 1)
                                     except Exception:
                                         pass
-                                keyword_matches.append({
-                                    "memory_id": mid,
-                                    "fact": fact,
-                                    "age_days": age_days,
-                                })
+                                keyword_matches.append({"memory_id": mid, "fact": fact, "age_days": age_days})
                     except Exception:
                         pass
-                matches = (semantic or []) + keyword_matches
-                return JSONResponse({"matches": matches})
+                return JSONResponse({"matches": (semantic or []) + keyword_matches})
             except Exception as e:
                 return JSONResponse({"error": str(e)}, status_code=500)
 
         # POST /memory/add -> store a new memory fact
+        # Accepts optional user_id and profile body params to override active session scope.
         @self._settings_app.post("/memory/add")
         async def _memory_add(request: Request) -> JSONResponse:
             body = await request.json()
@@ -514,6 +523,8 @@ class LocalStream:
             backend, profile, user_id = _get_memory_backend()
             if backend is None:
                 return JSONResponse({"error": "Memory not enabled for the active profile."}, status_code=400)
+            profile = body.get("profile") or profile
+            user_id = body.get("user_id") or user_id
             try:
                 await backend.remember(profile, fact, user_id=user_id)
                 return JSONResponse({"ok": True})

@@ -416,13 +416,21 @@ class VertexMemoryBackend:
         profile: str,
         user_id: str | None = None,
         page_size: int = 100,
+        profile_wide: bool = False,
     ) -> list[dict]:
-        """Return all memories for a scope (paginated). Each entry has name,
-        fact, createTime, updateTime, scope, and optional revision labels."""
+        """Return memories for a scope (paginated). Each entry has name,
+        fact, createTime, updateTime, scope, and optional revision labels.
+
+        profile_wide=True searches all users in the profile — useful for
+        keyword search where a family fact may be stored under a different
+        user_id (e.g. Mia's soccer stored under user_id=mia but Nick
+        is asking about it).
+        """
         scope = self._scope(profile, user_id)
-        # Vertex API supports filter param: scope.user_id="..." AND scope.profile="..."
-        # Filter syntax: "scope.user_id=\"nick\" AND scope.profile=\"yuki\""
-        flt = f'scope.user_id="{scope["user_id"]}" AND scope.profile="{profile}"'
+        if profile_wide:
+            flt = f'scope.profile="{profile}"'
+        else:
+            flt = f'scope.user_id="{scope["user_id"]}" AND scope.profile="{profile}"'
         all_items: list[dict] = []
         page_token: str | None = None
         for _ in range(20):  # cap pagination at 2000 results to be safe

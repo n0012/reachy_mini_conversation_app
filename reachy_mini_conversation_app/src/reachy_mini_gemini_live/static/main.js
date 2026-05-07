@@ -644,7 +644,7 @@ async function init() {
         const resp = await fetch("/memory/compact", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ dry_run: true }),
+          body: JSON.stringify({ dry_run: true, ...memScope() }),
         });
         const data = await resp.json();
         if (data.error) {
@@ -682,7 +682,7 @@ async function init() {
         const resp = await fetch("/memory/compact", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ dry_run: false, plan: selected }),
+          body: JSON.stringify({ dry_run: false, plan: selected, ...memScope() }),
         });
         const data = await resp.json();
         if (data.error) {
@@ -917,6 +917,65 @@ async function init() {
     }
     refreshMemoryCount();
 
+    // ── Memory scope selectors ─────────────────────────────────────────────────
+    const memProfileSelect = document.getElementById("mem-profile-select");
+    const memUserSelect = document.getElementById("mem-user-select");
+    const memScopeRefresh = document.getElementById("mem-scope-refresh");
+
+    // Populate profile dropdown from already-loaded personalities
+    async function initMemProfileSelect() {
+      try {
+        const resp = await fetchWithTimeout("/personalities", {}, 3000);
+        if (resp.ok) {
+          const data = await resp.json();
+          const profiles = data.choices || [];
+          const activeProf = data.current || "";
+          memProfileSelect.innerHTML = "";
+          profiles.filter(p => p !== "(built-in default)").forEach(p => {
+            const opt = document.createElement("option");
+            opt.value = p; opt.textContent = p;
+            if (p === activeProf) opt.selected = true;
+            memProfileSelect.appendChild(opt);
+          });
+        }
+      } catch {}
+    }
+
+    // Populate user dropdown by fetching unique user_ids for selected profile
+    async function refreshUserSelect() {
+      const profile = memProfileSelect.value;
+      if (!profile) return;
+      try {
+        const resp = await fetch(`/memory/users?profile=${encodeURIComponent(profile)}`);
+        const data = await resp.json();
+        const users = data.users || [];
+        const prev = memUserSelect.value;
+        memUserSelect.innerHTML = "";
+        users.forEach(u => {
+          const opt = document.createElement("option");
+          opt.value = u; opt.textContent = u;
+          if (u === prev || u === activeUser) opt.selected = true;
+          memUserSelect.appendChild(opt);
+        });
+        if (!memUserSelect.value && users.length) memUserSelect.value = users[0];
+      } catch {}
+      refreshMemoryCount();
+    }
+
+    function memScope() {
+      return { profile: memProfileSelect.value, user_id: memUserSelect.value };
+    }
+
+    await initMemProfileSelect();
+    await refreshUserSelect();
+    memProfileSelect.addEventListener("change", () => refreshUserSelect());
+    memUserSelect.addEventListener("change", () => {
+      refreshMemoryCount();
+      if (memSearchResults) memSearchResults.innerHTML = "";
+      if (memSearchStatus) memSearchStatus.textContent = "";
+    });
+    if (memScopeRefresh) memScopeRefresh.addEventListener("click", refreshUserSelect);
+
     // ── Memory browser: search / add / edit / delete ───────────────────────────
     const memSearchInput = document.getElementById("mem-search-input");
     const memSearchBtn = document.getElementById("mem-search-btn");
@@ -1078,7 +1137,7 @@ async function init() {
           const resp = await fetch("/memory/search", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ query: q }),
+            body: JSON.stringify({ query: q, ...memScope() }),
           });
           const data = await resp.json();
           if (data.error) { memSearchStatus.textContent = "Error: " + data.error; return; }
@@ -1102,7 +1161,7 @@ async function init() {
           const resp = await fetch("/memory/add", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ fact }),
+            body: JSON.stringify({ fact, ...memScope() }),
           });
           const data = await resp.json();
           if (data.ok) {
