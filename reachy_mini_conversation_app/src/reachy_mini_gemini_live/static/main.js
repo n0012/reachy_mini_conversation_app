@@ -894,13 +894,14 @@ async function init() {
     const memUserChip = document.getElementById("memory-user-chip");
     const memStatCount = document.getElementById("mem-stat-count");
     const memStatProfile = document.getElementById("mem-stat-profile");
+    let activeUser = "";
     try {
       const sessResp = await fetchWithTimeout("/session/status", {}, 3000);
       if (sessResp.ok) {
         const sess = await sessResp.json();
-        const user = sess.active_user || sess.user_id || "—";
+        activeUser = sess.active_user || sess.user_id || "";
         const profile = sess.profile || "—";
-        if (memUserChip) memUserChip.textContent = user;
+        if (memUserChip) memUserChip.textContent = activeUser || "—";
         if (memStatProfile) memStatProfile.textContent = `profile: ${profile}`;
       }
     } catch {}
@@ -1079,7 +1080,7 @@ async function init() {
         try {
           // Delete old, add new
           await fetch("/memory/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ memory_id: m.memory_id }) });
-          await fetch("/memory/add", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fact: newFact }) });
+          await fetch("/memory/add", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fact: newFact, ...memScope() }) });
           factEl.textContent = newFact.length > 70 ? newFact.slice(0, 70) + "…" : newFact;
           factEl.dataset.full = newFact;
           m.fact = newFact;
