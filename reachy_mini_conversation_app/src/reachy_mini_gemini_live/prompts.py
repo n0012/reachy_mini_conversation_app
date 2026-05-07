@@ -60,37 +60,55 @@ def _expand_prompt_includes(content: str) -> str:
     return "\n".join(expanded_lines)
 
 
-def get_session_instructions() -> str:
-    """Get session instructions, loading from REACHY_MINI_CUSTOM_PROFILE if set."""
-    profile = config.REACHY_MINI_CUSTOM_PROFILE
-    if not profile:
-        logger.info(f"Loading default prompt from {PROMPTS_LIBRARY_DIRECTORY / 'default_prompt.txt'}")
-        instructions_file = PROMPTS_LIBRARY_DIRECTORY / "default_prompt.txt"
-    else:
-        if config.PROFILES_DIRECTORY != DEFAULT_PROFILES_DIRECTORY:
-            logger.info(
-                "Loading prompt from external profile '%s' (root=%s)",
-                profile,
-                config.PROFILES_DIRECTORY,
-            )
-        else:
-            logger.info(f"Loading prompt from profile '{profile}'")
-        instructions_file = config.PROFILES_DIRECTORY / profile / INSTRUCTIONS_FILENAME
+_FALLBACK_PROFILE = "reachy-gemini"
 
+
+def _read_instructions(instructions_file) -> str | None:
+    """Return file contents (with includes expanded) or None if missing/empty/error."""
     try:
         if instructions_file.exists():
-            instructions = instructions_file.read_text(encoding="utf-8").strip()
-            if instructions:
-                # Expand [<name>] placeholders with content from prompts library
-                expanded_instructions = _expand_prompt_includes(instructions)
-                return expanded_instructions
-            logger.error(f"Profile '{profile}' has empty {INSTRUCTIONS_FILENAME}")
-            sys.exit(1)
-        logger.error(f"Profile {profile} has no {INSTRUCTIONS_FILENAME}")
-        sys.exit(1)
+            text = instructions_file.read_text(encoding="utf-8").strip()
+            if text:
+                return _expand_prompt_includes(text)
     except Exception as e:
-        logger.error(f"Failed to load instructions from profile '{profile}': {e}")
-        sys.exit(1)
+        logger.error(f"Failed to read {instructions_file}: {e}")
+    return None
+
+
+def get_session_instructions() -> str:
+    """Get session instructions, loading from REACHY_MINI_CUSTOM_PROFILE if set.
+
+    Falls back to the built-in default profile (and then to the bundled
+    default prompt) if the configured profile is missing — instead of
+    sys.exit(1), which crashes the whole app on a stale .env entry.
+    """
+    profile = config.REACHY_MINI_CUSTOM_PROFILE
+    if profile:
+        if config.PROFILES_DIRECTORY != DEFAULT_PROFILES_DIRECTORY:
+            logger.info("Loading prompt from external profile '%s' (root=%s)", profile, config.PROFILES_DIRECTORY)
+        else:
+            logger.info(f"Loading prompt from profile '{profile}'")
+        text = _read_instructions(config.PROFILES_DIRECTORY / profile / INSTRUCTIONS_FILENAME)
+        if text is not None:
+            return text
+        logger.warning(
+            "Profile '%s' missing or empty — falling back to '%s'",
+            profile, _FALLBACK_PROFILE,
+        )
+
+    # Fallback path: try the built-in reachy-gemini profile, then the bundled default prompt
+    text = _read_instructions(DEFAULT_PROFILES_DIRECTORY / _FALLBACK_PROFILE / INSTRUCTIONS_FILENAME)
+    if text is not None:
+        return text
+
+    default_path = PROMPTS_LIBRARY_DIRECTORY / "default_prompt.txt"
+    logger.info(f"Loading bundled default prompt from {default_path}")
+    text = _read_instructions(default_path)
+    if text is not None:
+        return text
+
+    logger.error("No instructions found anywhere — using minimal placeholder")
+    return "You are Reachy Mini, a friendly conversational robot."
 
 
 def get_session_voice(default: str | None = None) -> str:
