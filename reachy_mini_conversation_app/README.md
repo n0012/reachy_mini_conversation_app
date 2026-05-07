@@ -183,9 +183,31 @@ These are always-on system tools (not in the per-profile tool toggles) — Reach
 
 | Tool | What it does | Example |
 |---|---|---|
-| `remember(fact, lifetime_days=None)` | Store a durable fact, or set `lifetime_days` for an ephemeral one with TTL | `remember("Nick is at JFK airport", lifetime_days=1)` |
+| `remember(fact, lifetime_days=None)` | Store a durable fact, or set `lifetime_days` for an ephemeral one with TTL | `remember("User is at the airport today", lifetime_days=1)` |
 | `recall(query)` | Semantic search of stored memories — returns matching facts with their IDs, used as the prerequisite for `forget` | `recall("favorite drink")` |
 | `forget(memory_ids=[…])` | Delete specific memories by ID. Pre-flight checks reject fabricated IDs and return a "call recall first" error | `forget(["12345"])` |
+
+### Visual identification — how Reachy learns to recognise you
+
+Reachy uses Gemini's vision to identify users by appearance — no face recognition model required. The identification quality improves over time as it builds a detailed visual profile.
+
+**First session with a new user:**
+1. Reachy takes a photo and asks "Hey there. Who am I talking with?"
+2. After verbal confirmation, it immediately takes another photo and stores a rich visual description: face shape, skin tone, eye color, hair details, glasses, build, and any distinctive features (jaw, brow shape, moles, stubble, etc.)
+
+**Subsequent sessions:**
+- Reachy takes a photo and compares it against stored visual descriptions
+- **High confidence (3+ features match):** greets by name directly, no confirmation ask
+- **Medium confidence:** "You look like [name] — that you?" — one-word confirmation
+- **Low confidence / unknown:** asks verbally
+
+**Tips for best results:**
+
+- **First session:** after verbal confirmation, explicitly say *"Take a photo and update my visual description"* — this triggers a fresh, detailed capture right then.
+- **If identification is unreliable:** go to the **Memory** tab → search `"Visual ID"` → delete any outdated or vague entry. The next session will capture a fresh one.
+- **Old format entries:** if you see `Physical description of [name]` in memory (legacy format), delete it and let Reachy capture a new `Visual ID — [name]` entry with the richer format.
+- **Appearance changes** (new glasses, different hair): say *"Update my visual description"* so Reachy captures the change.
+- **Multiple household members:** each person gets their own `Visual ID` stored in their memory scope, so the robot distinguishes them independently.
 
 ### Memory hygiene — `🧹 Compact memories` button
 
