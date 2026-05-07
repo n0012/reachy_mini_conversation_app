@@ -198,6 +198,7 @@ class VertexMemoryBackend:
         fetch_k: int = DEFAULT_FETCH_K,
         top_k: int = DEFAULT_TOP_K,
         with_ids: bool = False,
+        max_distance: float | None = None,
     ) -> list:
         """Retrieve facts for a query, distance-filter, recency-boost, return top facts.
 
@@ -229,7 +230,8 @@ class VertexMemoryBackend:
             return []
 
         all_memories = resp.get("retrievedMemories", [])
-        kept = [m for m in all_memories if m.get("distance") is None or m.get("distance") <= MAX_DISTANCE]
+        cutoff = max_distance if max_distance is not None else MAX_DISTANCE
+        kept = [m for m in all_memories if m.get("distance") is None or m.get("distance") <= cutoff]
         if len(kept) < len(all_memories):
             logger.info(
                 "Memory: filtered %d low-quality results (maxDistance=%.1f)",

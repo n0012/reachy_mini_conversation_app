@@ -462,7 +462,14 @@ class LocalStream:
             if backend is None:
                 return JSONResponse({"error": "Memory not enabled for the active profile."}, status_code=400)
             try:
-                matches = await backend.search(profile, query, user_id=user_id, top_k=30, with_ids=True)
+                # Use a tighter distance cutoff (0.85) for user-facing search so
+                # only genuinely relevant memories are shown — Vertex always returns
+                # top_k results regardless of relevance so we need an explicit filter.
+                matches = await backend._retrieve(
+                    profile, query, user_id=user_id,
+                    fetch_k=50, top_k=30,
+                    with_ids=True, max_distance=0.85,
+                )
                 return JSONResponse({"matches": matches or []})
             except Exception as e:
                 return JSONResponse({"error": str(e)}, status_code=500)

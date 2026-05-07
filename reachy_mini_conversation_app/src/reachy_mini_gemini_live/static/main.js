@@ -926,7 +926,7 @@ async function init() {
     const memAddBtn = document.getElementById("mem-add-btn");
     const memAddStatus = document.getElementById("mem-add-status");
 
-    async function deleteMemory(memoryId, rowEl) {
+    async function deleteMemory(memoryId, rowEl, onError) {
       try {
         const resp = await fetch("/memory/delete", {
           method: "POST",
@@ -934,9 +934,16 @@ async function init() {
           body: JSON.stringify({ memory_id: memoryId }),
         });
         const data = await resp.json();
-        if (data.ok) { rowEl.remove(); refreshMemoryCount(); }
-        else alert("Delete failed: " + (data.error || "unknown"));
-      } catch (e) { alert("Delete failed: " + e.message); }
+        if (data.ok) {
+          rowEl.style.transition = "opacity 0.2s";
+          rowEl.style.opacity = "0";
+          setTimeout(() => { rowEl.remove(); refreshMemoryCount(); }, 200);
+        } else {
+          if (onError) onError("Delete failed: " + (data.error || "unknown"));
+        }
+      } catch (e) {
+        if (onError) onError("Delete failed: " + e.message);
+      }
     }
 
     function renderMemoryResult(m) {
@@ -1025,8 +1032,32 @@ async function init() {
         saveEditBtn.textContent = "Save edit";
       });
 
+      // Two-click delete: first click → "Really?" confirmation inline
       delBtn.addEventListener("click", () => {
-        if (confirm(`Delete this memory?\n\n"${m.fact}"`)) deleteMemory(m.memory_id, row);
+        if (delBtn.dataset.confirming) {
+          // Second click — do it
+          delBtn.textContent = "Deleting…";
+          delBtn.disabled = true;
+          deleteMemory(m.memory_id, row, (err) => {
+            delBtn.disabled = false;
+            delBtn.textContent = "Delete";
+            delete delBtn.dataset.confirming;
+            delBtn.style.cssText = "margin:0;padding:3px 8px;font-size:11px;flex-shrink:0;color:#ef9a9a;border-color:#ef9a9a44";
+          });
+        } else {
+          // First click — show confirmation state
+          delBtn.dataset.confirming = "1";
+          delBtn.textContent = "Really?";
+          delBtn.style.background = "#ef9a9a22";
+          // Auto-reset after 3s if user doesn't confirm
+          setTimeout(() => {
+            if (delBtn.dataset.confirming) {
+              delete delBtn.dataset.confirming;
+              delBtn.textContent = "Delete";
+              delBtn.style.background = "";
+            }
+          }, 3000);
+        }
       });
 
       return row;
