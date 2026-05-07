@@ -380,6 +380,41 @@ class LocalStream:
                 self._persist_env_values(updates)
             return JSONResponse({"ok": True, "auto_sleep_minutes": config.AUTO_SLEEP_MINUTES})
 
+        # GET /config/memory -> return retrieval tuning knobs
+        @self._settings_app.get("/config/memory")
+        def _config_memory_get() -> JSONResponse:
+            import reachy_mini_gemini_live.memory as _mem
+            return JSONResponse({
+                "top_k": _mem.DEFAULT_TOP_K,
+                "recency_alpha": _mem.RECENCY_ALPHA,
+                "top_k_range": [5, 50],
+                "recency_alpha_range": [0.0, 0.5],
+            })
+
+        # POST /config/memory -> persist retrieval tuning knobs to .env
+        @self._settings_app.post("/config/memory")
+        async def _config_memory_post(request: Request) -> JSONResponse:
+            body = await request.json()
+            updates: dict[str, str] = {}
+            import reachy_mini_gemini_live.memory as _mem
+            if "top_k" in body:
+                try:
+                    k = max(5, min(50, int(body["top_k"])))
+                    updates["REACHY_MINI_TOP_K"] = str(k)
+                    _mem.DEFAULT_TOP_K = k
+                except (ValueError, TypeError):
+                    return JSONResponse({"ok": False, "error": "top_k must be 5-50"}, status_code=400)
+            if "recency_alpha" in body:
+                try:
+                    a = max(0.0, min(0.5, float(body["recency_alpha"])))
+                    updates["REACHY_MINI_RECENCY_ALPHA"] = str(round(a, 3))
+                    _mem.RECENCY_ALPHA = a
+                except (ValueError, TypeError):
+                    return JSONResponse({"ok": False, "error": "recency_alpha must be 0-0.5"}, status_code=400)
+            if updates:
+                self._persist_env_values(updates)
+            return JSONResponse({"ok": True, "top_k": _mem.DEFAULT_TOP_K, "recency_alpha": _mem.RECENCY_ALPHA})
+
         # POST /memory/compact -> LLM-driven cleanup pass over stored memories.
         # Two-step UX: client first calls dry_run=true to preview, then dry_run=false to apply.
         @self._settings_app.post("/memory/compact")

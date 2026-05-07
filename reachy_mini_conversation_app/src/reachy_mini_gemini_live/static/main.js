@@ -688,9 +688,15 @@ async function init() {
         if (data.error) {
           compactApplyStatus.textContent = "Error: " + data.error;
         } else {
-          compactApplyStatus.textContent = `Done — ${data.applied} memor${data.applied === 1 ? "y" : "ies"} updated.`;
+          // Clear the panel — actions are done
+          compactResult.classList.add("hidden");
+          compactList.innerHTML = "";
           compactApplyBar.classList.add("hidden");
+          compactApplyStatus.textContent = "";
           pendingCompactPlan = null;
+          compactBtn.textContent = `🧹 Compact memories — ${data.applied} updated`;
+          setTimeout(() => { compactBtn.textContent = "🧹 Compact memories"; }, 4000);
+          refreshMemoryCount();
         }
       } catch (e) {
         compactApplyStatus.textContent = "Failed: " + (e.message || "unknown");
@@ -898,15 +904,83 @@ async function init() {
         if (memStatProfile) memStatProfile.textContent = `profile: ${profile}`;
       }
     } catch {}
-    // Memory count: fetch from /memories/list if available
+    // Memory count — reusable so compact/settings can refresh it
+    async function refreshMemoryCount() {
+      try {
+        const mResp = await fetchWithTimeout("/memory/list", {}, 3000);
+        if (mResp.ok) {
+          const mData = await mResp.json();
+          const count = mData.total ?? (Array.isArray(mData.memories) ? mData.memories.length : null);
+          if (count !== null && memStatCount) memStatCount.textContent = `${count} memories`;
+        }
+      } catch {}
+    }
+    refreshMemoryCount();
+
+    // ── Retrieval settings ─────────────────────────────────────────────────────
+    const topKSlider = document.getElementById("mem-top-k");
+    const topKVal = document.getElementById("mem-top-k-val");
+    const recencySlider = document.getElementById("mem-recency");
+    const recencyVal = document.getElementById("mem-recency-val");
+    const memSaveBtn = document.getElementById("mem-settings-save");
+    const memSaveStatus = document.getElementById("mem-settings-status");
+
+    const recencyLabel = v => {
+      const n = parseFloat(v);
+      if (n <= 0.02) return "Semantic only";
+      if (n <= 0.08) return "Mostly semantic";
+      if (n <= 0.18) return "Balanced";
+      if (n <= 0.3) return "Prefer recent";
+      return "Strongly recent";
+    };
+
+    if (topKSlider) {
+      topKSlider.addEventListener("input", () => { topKVal.textContent = topKSlider.value; });
+    }
+    if (recencySlider) {
+      recencySlider.addEventListener("input", () => { recencyVal.textContent = recencyLabel(recencySlider.value); });
+    }
+
+    // Load current retrieval settings
     try {
-      const mResp = await fetchWithTimeout("/memory/list", {}, 3000);
-      if (mResp.ok) {
-        const mData = await mResp.json();
-        const count = mData.total ?? (Array.isArray(mData.memories) ? mData.memories.length : null);
-        if (count !== null && memStatCount) memStatCount.textContent = `${count} memories`;
+      const rResp = await fetchWithTimeout("/config/memory", {}, 3000);
+      if (rResp.ok) {
+        const rData = await rResp.json();
+        if (topKSlider && rData.top_k) { topKSlider.value = rData.top_k; topKVal.textContent = rData.top_k; }
+        if (recencySlider && rData.recency_alpha !== undefined) {
+          recencySlider.value = rData.recency_alpha;
+          recencyVal.textContent = recencyLabel(rData.recency_alpha);
+        }
       }
     } catch {}
+
+    if (memSaveBtn) {
+      memSaveBtn.addEventListener("click", async () => {
+        memSaveBtn.disabled = true;
+        setStatusMessage(memSaveStatus, "Saving…");
+        try {
+          const resp = await fetch("/config/memory", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              top_k: parseInt(topKSlider.value),
+              recency_alpha: parseFloat(recencySlider.value),
+            }),
+          });
+          const data = await resp.json();
+          if (data.ok) {
+            setStatusMessage(memSaveStatus, "Saved — takes effect next session.", "ok");
+            refreshMemoryCount();
+          } else {
+            setStatusMessage(memSaveStatus, data.error || "Error", "error");
+          }
+        } catch (e) {
+          setStatusMessage(memSaveStatus, "Failed: " + e.message, "error");
+        } finally {
+          memSaveBtn.disabled = false;
+        }
+      });
+    }
 
     // ── Unified feed ───────────────────────────────────────────────────────────
 

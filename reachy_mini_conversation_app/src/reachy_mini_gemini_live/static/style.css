@@ -103,6 +103,44 @@ body {
 }
 .tab-pane { display: none; }
 .tab-pane.active { display: block; }
+/* ── Info tooltip ── */
+.info-tip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: default;
+  position: relative;
+  flex-shrink: 0;
+}
+.info-tip::after {
+  content: attr(data-tip);
+  display: none;
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  width: 240px;
+  max-width: 90vw;
+  background: var(--bg-2, #0d1a2f);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: normal;
+  text-transform: none;
+  font-weight: normal;
+  letter-spacing: 0;
+  z-index: 200;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+}
+.info-tip:hover::after { display: block; }
+
 .pill {
   display: inline-flex;
   align-items: center;

@@ -50,11 +50,11 @@ DEFAULT_USER_ID = "unknown"
 #   score = similarity + RECENCY_ALPHA * exp(-age_days / RECENCY_TAU_DAYS)
 # Tuned so a fact from yesterday outranks a slightly more similar fact from
 # 6 months ago, but old facts still surface when nothing recent matches.
-RECENCY_ALPHA = 0.15        # weight of recency bonus relative to similarity (0..1)
-RECENCY_TAU_DAYS = 30.0     # half-life-ish: bonus decays to ~37% at this age
-MAX_DISTANCE = 1.5          # client-side filter on similarity distance
-DEFAULT_FETCH_K = 50        # over-fetch this many before re-rank
-DEFAULT_TOP_K = 20          # return this many after re-rank
+RECENCY_ALPHA = float(os.getenv("REACHY_MINI_RECENCY_ALPHA", "0.15"))  # recency weight (0=off, 1=strong)
+RECENCY_TAU_DAYS = 30.0     # decay constant — bonus ~37% at this age
+MAX_DISTANCE = 1.5          # client-side similarity filter
+DEFAULT_FETCH_K = 50        # over-fetch before re-rank
+DEFAULT_TOP_K = int(os.getenv("REACHY_MINI_TOP_K", "20"))             # memories surfaced per session
 
 
 def get_active_user() -> str:

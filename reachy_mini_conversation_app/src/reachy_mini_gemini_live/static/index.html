@@ -119,6 +119,38 @@
             <span id="mem-stat-profile">profile: —</span>
           </div>
 
+          <!-- Retrieval settings -->
+          <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:16px">
+            <p class="eyebrow" style="margin:0 0 4px">Retrieval settings</p>
+            <p class="muted small" style="margin:0 0 12px">Controls what gets loaded into Reachy's context at the start of each session. Changes take effect next session.</p>
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                  <label style="font-size:13px;display:flex;align-items:center;gap:5px">
+                    Memories per session
+                    <span class="info-tip" data-tip="How many memories are loaded into Reachy's context at the start of each conversation. Higher = richer context and better recall, but a longer system prompt which can slow response time. Lower = faster and more focused on recent facts. Default: 20.">ⓘ</span>
+                  </label>
+                  <span id="mem-top-k-val" class="muted small">20</span>
+                </div>
+                <input id="mem-top-k" type="range" min="5" max="50" step="5" value="20" style="width:100%" />
+              </div>
+              <div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                  <label style="font-size:13px;display:flex;align-items:center;gap:5px">
+                    Recency preference
+                    <span class="info-tip" data-tip="Controls how much weight recent memories get vs. semantically similar older ones. 'Semantic only' = pure relevance matching. 'Strongly recent' = heavily favors facts from the last few days. 'Balanced' is a good default for most users. Default: Balanced.">ⓘ</span>
+                  </label>
+                  <span id="mem-recency-val" class="muted small">Balanced</span>
+                </div>
+                <input id="mem-recency" type="range" min="0" max="0.5" step="0.05" value="0.15" style="width:100%" />
+              </div>
+            </div>
+            <div class="actions" style="margin-top:12px">
+              <button id="mem-settings-save">Save retrieval settings</button>
+              <p id="mem-settings-status" class="status" role="status" aria-live="polite"></p>
+            </div>
+          </div>
+
           <!-- Compact memories -->
           <div style="border-top:1px solid var(--border);padding-top:14px">
             <p class="eyebrow" style="margin:0 0 6px">Maintenance</p>
