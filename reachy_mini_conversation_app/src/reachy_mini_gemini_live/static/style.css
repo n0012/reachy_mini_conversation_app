@@ -492,7 +492,7 @@ button.ghost:hover { border-color: rgba(94, 240, 193, 0.4); }
 }
 
 /* Session event chip — memory, search, sleep/wake */
-/* Recall result card */
+/* Recall result card — Vertex-console-style hover tooltip per fact */
 .feed-recall-card {
   background: rgba(255,255,255,0.03);
   border: 1px solid var(--border);
@@ -501,11 +501,48 @@ button.ghost:hover { border-color: rgba(94, 240, 193, 0.4); }
   font-size: 12px;
 }
 .feed-recall-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 5px;
 }
+.feed-recall-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.feed-recall-row {
+  position: relative;
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.feed-recall-row:last-child { border-bottom: none; }
+.feed-recall-row::after {
+  content: attr(data-full);
+  display: none;
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  width: 320px;
+  max-width: 90vw;
+  background: var(--bg-2, #0d1a2f);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+  color: var(--text);
+  z-index: 100;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.feed-recall-row:hover::after { display: block; }
 
 .feed-session-chip {
   align-self: center;

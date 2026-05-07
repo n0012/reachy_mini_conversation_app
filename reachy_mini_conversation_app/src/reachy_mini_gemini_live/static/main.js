@@ -864,25 +864,31 @@ async function init() {
         unifiedFeed.appendChild(chip);
 
       } else if (role === "recall_result") {
-        // Compact recall card — shows match count, expandable fact list
+        // Recall card: header + one row per fact, hover to see full text
         const card = document.createElement("div");
         card.className = "feed-recall-card";
         const header = document.createElement("div");
         header.className = "feed-recall-header";
-        const hasDetail = detail && detail.trim();
-        header.innerHTML = `<span>${content}</span>${hasDetail ? '<span class="feed-chip-expand">▸ show</span>' : ''}`;
+        header.textContent = content;
         card.appendChild(header);
-        if (hasDetail) {
-          const pre = document.createElement("pre");
-          pre.className = "feed-memory-detail hidden";
-          pre.textContent = detail;
-          card.appendChild(pre);
-          header.querySelector(".feed-chip-expand").addEventListener("click", (e) => {
-            e.stopPropagation();
-            const open = !pre.classList.contains("hidden");
-            pre.classList.toggle("hidden", open);
-            header.querySelector(".feed-chip-expand").textContent = open ? "▸ show" : "▾ hide";
+        if (detail && detail.trim()) {
+          // Parse lines: first is "query: ..." rest are "N. fact · Xd ago"
+          const lines = detail.split("\n").slice(1); // skip query line
+          const list = document.createElement("div");
+          list.className = "feed-recall-list";
+          lines.forEach(line => {
+            if (!line.trim()) return;
+            const row = document.createElement("div");
+            row.className = "feed-recall-row";
+            // Truncate at 55 chars for display; full text in data attr for hover
+            const dotIdx = line.indexOf(". ");
+            const factPart = dotIdx >= 0 ? line.slice(dotIdx + 2) : line;
+            const display = factPart.length > 55 ? factPart.slice(0, 55) + "…" : factPart;
+            row.textContent = display;
+            row.dataset.full = factPart;
+            list.appendChild(row);
           });
+          card.appendChild(list);
         }
         unifiedFeed.appendChild(card);
 
