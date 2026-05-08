@@ -183,6 +183,13 @@ class GeminiLiveHandler(AsyncStreamHandler):
         self._pending_assistant_transcript_chunks: list[str] = []
         self._listening_state = False
 
+        # Canned-refusal loop detection. When Gemini's safety filter trips during a
+        # Live session it streams the same stock refusal repeatedly without recovery.
+        # Track consecutive identical assistant utterances and force-restart the
+        # session before the user gives up.
+        self._last_assistant_text: str = ""
+        self._repeat_assistant_count: int = 0
+
         # Memory — initialised once, shared via deps so the remember tool can access it
         self._memory = create_memory_backend()
         self._session_transcript: list[dict] = []
@@ -226,6 +233,23 @@ class GeminiLiveHandler(AsyncStreamHandler):
 
         self._session_transcript.append({"role": role, "content": transcript})
         await self.output_queue.put(AdditionalOutputs({"role": role, "content": transcript}))
+
+        if role == "assistant":
+            normalized = transcript.strip().lower().rstrip(".!? ")
+            CANNED_REFUSAL = "i'm just a language model and can't help with that"
+            if normalized == self._last_assistant_text and normalized:
+                self._repeat_assistant_count += 1
+            else:
+                self._last_assistant_text = normalized
+                self._repeat_assistant_count = 1
+            if self._repeat_assistant_count >= 2 or normalized == CANNED_REFUSAL:
+                logger.warning(
+                    "Detected stuck assistant response (%dx %r) — restarting Gemini Live session",
+                    self._repeat_assistant_count, transcript[:80],
+                )
+                self._last_assistant_text = ""
+                self._repeat_assistant_count = 0
+                asyncio.create_task(self._restart_session(), name="gemini-safety-recover")
 
     async def _mark_model_response_started(self) -> None:
         """Switch out of user-listening mode when the model begins responding."""
@@ -509,6 +533,20 @@ class GeminiLiveHandler(AsyncStreamHandler):
         if function_declarations:
             tools_config.append({"function_declarations": function_declarations})
 
+        # Maximally permissive safety thresholds. AI Studio defaults are tuned for adult
+        # text chat and over-refuse on family/kid voice + visual context, locking the
+        # session into the "I'm just a language model" canned reply.
+        safety_settings = [
+            types.SafetySetting(category=cat, threshold=types.HarmBlockThreshold.OFF)
+            for cat in (
+                types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                types.HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,
+            )
+        ]
+
         live_config = types.LiveConnectConfig(
             response_modalities=[types.Modality.AUDIO],
             system_instruction=types.Content(parts=[types.Part(text=instructions)]),
@@ -520,6 +558,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
                 ),
             ),
             tools=tools_config,  # type: ignore[arg-type]
+            safety_settings=safety_settings,
             input_audio_transcription=types.AudioTranscriptionConfig(),
             output_audio_transcription=types.AudioTranscriptionConfig(),
             context_window_compression=types.ContextWindowCompressionConfig(
