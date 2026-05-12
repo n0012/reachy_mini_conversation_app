@@ -533,19 +533,11 @@ class GeminiLiveHandler(AsyncStreamHandler):
         if function_declarations:
             tools_config.append({"function_declarations": function_declarations})
 
-        # Maximally permissive safety thresholds. AI Studio defaults are tuned for adult
-        # text chat and over-refuse on family/kid voice + visual context, locking the
-        # session into the "I'm just a language model" canned reply.
-        safety_settings = [
-            types.SafetySetting(category=cat, threshold=types.HarmBlockThreshold.OFF)
-            for cat in (
-                types.HarmCategory.HARM_CATEGORY_HARASSMENT,
-                types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                types.HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,
-            )
-        ]
+        # Note: safety_settings are not supported by the Gemini Live API
+        # (https://firebase.google.com/docs/ai-logic/safety-settings). Sending the field
+        # makes the server reject the setup with 1007 and the session reconnect-loops.
+        # Family/kid over-refusal is mitigated via the system prompt and the
+        # canned-refusal auto-recover in _emit_transcript instead.
 
         live_config = types.LiveConnectConfig(
             response_modalities=[types.Modality.AUDIO],
@@ -558,7 +550,6 @@ class GeminiLiveHandler(AsyncStreamHandler):
                 ),
             ),
             tools=tools_config,  # type: ignore[arg-type]
-            safety_settings=safety_settings,
             input_audio_transcription=types.AudioTranscriptionConfig(),
             output_audio_transcription=types.AudioTranscriptionConfig(),
             context_window_compression=types.ContextWindowCompressionConfig(
