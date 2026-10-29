@@ -231,32 +231,26 @@ def _ago(age_days: float | None) -> str:
 
 
 def _format_dated_context(recent: list[dict], older: list[dict]) -> str:
-    """Session-start memory block: recent conversations first, a few older facts as background.
+    """Session-start memory: the usual relevant-memories block, then what was saved recently.
 
-    One fixed similarity query used to surface the same old facts every session, undated, so
-    the robot kept bringing them up and couldn't tell last night from last spring.
+    One fixed similarity query surfaced the same old facts every session, undated, so the robot
+    kept bringing them up and couldn't tell last night from last spring. The relevant block is
+    kept exactly as before (the profile prompt is tuned to it — reshaping it cost identity and
+    restraint in the eval); recent conversations come after it, dated, in their own block.
     """
-    lines = [
-        "<vertex_memory_bank>",
-        "Memories from prior sessions, each with how long ago it was saved (the current date and "
-        "time are given above). Use what you know about who the person is, their family and "
-        "preferences naturally. For small talk about what's been happening, draw on recent "
-        "conversations; don't bring up old events unless the person raises the topic, and never "
-        "present an older memory as something recent. If you're not sure when something "
-        "happened, say so.",
-    ]
-    n = 0
-    for heading, group in (
-        ("From recent conversations (newest first):", recent),
-        ("What you know from earlier (older memories):", older),
-    ):
-        if not group:
-            continue
-        lines.append(heading)
-        for f in group:
-            n += 1
-            lines.append(f"{n}. {f['fact']} ({_ago(f.get('age_days'))})")
-    lines.append("</vertex_memory_bank>")
+    lines = []
+    if older:
+        lines.append("<vertex_memory_bank>\nRelevant memories from prior sessions:")
+        lines += [f"{i + 1}. {f['fact']}" for i, f in enumerate(older)]
+        lines.append("</vertex_memory_bank>")
+    if recent:
+        lines.append(
+            "<recent_conversations>\nSaved in the last few days, newest first, with how long ago "
+            "(the memories above are older). For small talk and catching up, draw on these rather "
+            "than older memories, and never present an older memory as something recent."
+        )
+        lines += [f"- {f['fact']} ({_ago(f.get('age_days'))})" for f in recent]
+        lines.append("</recent_conversations>")
     return "\n".join(lines)
 
 

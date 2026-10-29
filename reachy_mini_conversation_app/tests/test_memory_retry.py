@@ -94,10 +94,10 @@ async def test_load_context_dates_memories_and_lists_recent_first(vertex, monkey
 
     ctx = await vertex.load_context("default", user_id="u1")
 
-    recent = ctx.index("From recent conversations")
-    background = ctx.index("What you know from earlier")
-    assert recent < ctx.index("Started learning chess. (12 hours ago)") < background
-    assert background < ctx.index("Works in tech. (5 months ago)")
+    # The relevant block keeps its deployed shape; recent conversations follow it, dated.
+    assert ctx.startswith("<vertex_memory_bank>\nRelevant memories from prior sessions:\n1. Works in tech.\n")
+    assert ctx.index("</vertex_memory_bank>") < ctx.index("<recent_conversations>")
+    assert ctx.index("<recent_conversations>") < ctx.index("- Started learning chess. (12 hours ago)")
 
 
 @pytest.mark.asyncio
