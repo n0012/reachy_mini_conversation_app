@@ -36,21 +36,8 @@ say() { echo "▸ $*"; }
 
 deployed_commit() { robot "cat $STATE_DIR/DEPLOYED 2>/dev/null || true"; }
 
-# Extract the package exactly as committed into $2, with Git LFS files (the wake-word
-# model, sounds) resolved to their real content — git archive alone ships LFS pointers.
-build_package() {
-  local commit="$1" out="$2" f
-  rm -rf "$out" && mkdir -p "$out"
-  git -C "$REPO_ROOT" archive "$commit:$PKG_PATH_IN_REPO" | tar -x -C "$out"
-  while IFS= read -r f; do
-    git -C "$REPO_ROOT" show "$commit:$PKG_PATH_IN_REPO/$f" | git -C "$REPO_ROOT" lfs smudge -- "$f" >"$out/$f.real"
-    mv "$out/$f.real" "$out/$f"
-  done < <(cd "$out" && grep -rlI --exclude-dir=__pycache__ '^version https://git-lfs.github.com/spec/v1' . | sed 's#^\./##')
-  if grep -rlI '^version https://git-lfs.github.com/spec/v1' "$out" >/dev/null; then
-    die "unresolved Git LFS pointers in the package (run: git lfs pull)"
-  fi
-  test -s "$out/gemini_live.py" || die "package build for $commit looks empty"
-}
+# shellcheck source=scripts/lib_package.sh
+. "$APP_ROOT/scripts/lib_package.sh"
 
 # Compare the robot's installed package with commit $1 (behaviour-level).
 verify_robot() {
@@ -147,7 +134,7 @@ say "building $short (with Git LFS files)"
 build_package "$sha" "$local_stage"
 say "staging $short on the robot"
 robot "rm -rf $stage && mkdir -p $stage"
-tar -c -C "$local_stage" . | robot "tar -x -C $stage"
+tar --no-mac-metadata -c -C "$local_stage" . | robot "tar -x -C $stage"
 rm -rf "$(dirname "$local_stage")"
 robot "test -s $stage/gemini_live.py && test \$(stat -c %s $stage/models/hey-reachy-wake-word-detection-linux-aarch64.eim) -gt 1000000" ||
   die "staged package looks wrong (missing code or wake-word model)"
@@ -162,6 +149,8 @@ robot "/venvs/apps_venv/bin/python -c 'import reachy_mini_gemini_live.gemini_liv
   die "import check failed on the robot — restore with: --rollback ${current:-<previous>}"
 
 robot "echo $sha > $STATE_DIR/DEPLOYED; echo '$ts $mode $sha' >> $STATE_DIR/history.log"
+# What the robot runs is what the next candidate must beat (the eval ratchet).
+[ "$mode" = "forward" ] && echo "$sha" >"${REACHY_EVAL_DIR:-$HOME/.reachy_eval}/baseline"
 say "robot now runs $short ($(git -C "$REPO_ROOT" log -1 --format=%s "$sha"))"
 
 # 6. Optional restart; otherwise the new code loads on the next app start.
