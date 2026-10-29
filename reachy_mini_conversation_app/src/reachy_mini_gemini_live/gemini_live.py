@@ -52,6 +52,10 @@ logger = logging.getLogger(__name__)
 GEMINI_INPUT_SAMPLE_RATE: Final[int] = 16000
 GEMINI_OUTPUT_SAMPLE_RATE: Final[int] = 24000
 _MID_SESSION_SAVE_EVERY_N_TURNS: Final[int] = 20
+# With no face in view (dark room, nobody there) the identification instructions make the
+# model call the camera over and over — 104 calls in a minute in one eval. The live video
+# already streams at 1 FPS, so repeat snapshots within this window are answered, not taken.
+CAMERA_COOLDOWN_S: Final[float] = 30.0
 
 
 def _profile_memory_enabled(profile: str) -> bool:
@@ -221,6 +225,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
         # Track consecutive identical assistant utterances and force-restart the
         # session before the user gives up.
         self._last_assistant_text: str = ""
+        self._last_camera_call: float = float("-inf")
         self._repeat_assistant_count: int = 0
 
         # Memory — initialised once, shared via deps so the remember tool can access it
@@ -714,6 +719,28 @@ class GeminiLiveHandler(AsyncStreamHandler):
                 args_json_str,
             )
 
+            if tool_name == "camera":
+                now = asyncio.get_event_loop().time()
+                if now - self._last_camera_call < CAMERA_COOLDOWN_S:
+                    logger.info("Camera call within %.0fs cooldown — not taking another snapshot", CAMERA_COOLDOWN_S)
+                    if self.session is not None:
+                        await self.session.send_tool_response(
+                            function_responses=[
+                                types.FunctionResponse(
+                                    id=call_id,
+                                    name=tool_name,
+                                    response={
+                                        "status": "skipped",
+                                        "reason": "A snapshot was taken seconds ago and the live video shows the "
+                                        "scene. Do not call camera again now; if no face is visible, ask by voice.",
+                                        "scheduling": "SILENT",
+                                    },
+                                )
+                            ]
+                        )
+                    continue
+                self._last_camera_call = now
+
             bg_tool = await self.tool_manager.start_tool(
                 call_id=call_id,
                 tool_call_routine=ToolCallRoutine(
@@ -933,6 +960,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
         if not resuming:
             self._session_transcript = []  # reset for new session
             self._turn_count = 0
+            self._last_camera_call = float("-inf")  # a new session may identify the person again
 
         # Check if memory is enabled for this profile (opt-in via memory.txt)
         self._memory_enabled = _profile_memory_enabled(profile)
