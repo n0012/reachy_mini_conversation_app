@@ -121,6 +121,14 @@ def _convert_schema_types(schema: Any) -> Any:
     return result
 
 
+def _env_flag(name: str, default: bool) -> bool:
+    """Read a boolean env var ("1/true/yes/on" or "0/false/no/off")."""
+    value = os.environ.get(name, "").strip().lower()
+    if not value:
+        return default
+    return value in {"1", "true", "yes", "on"}
+
+
 def _resolve_gemini_voice(profile_voice: str) -> str:
     """Return a valid Gemini voice name, falling back to the default."""
     return resolve_voice(profile_voice)
@@ -149,6 +157,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
 
         self.last_activity_time = asyncio.get_event_loop().time()
         self.start_time = asyncio.get_event_loop().time()
+        self._idle_nudges = _env_flag("REACHY_MINI_IDLE_NUDGES", False)
         self.is_idle_tool_call = False
 
         # Track API key source (env vs textbox)
@@ -1373,9 +1382,10 @@ class GeminiLiveHandler(AsyncStreamHandler):
 
     async def emit(self) -> Tuple[int, NDArray[np.int16]] | AdditionalOutputs | None:
         """Emit audio frame to be played by the speaker."""
-        # Handle idle
+        # Idle nudges make the model answer nobody every 15s ("anything else?", spoken
+        # do_nothing reasoning, placeholders), so they're opt-in.
         idle_duration = asyncio.get_event_loop().time() - self.last_activity_time
-        if idle_duration > 15.0 and self.deps.movement_manager.is_idle():
+        if self._idle_nudges and idle_duration > 15.0 and self.deps.movement_manager.is_idle():
             try:
                 await self.send_idle_signal(idle_duration)
             except Exception as e:
