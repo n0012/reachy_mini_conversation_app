@@ -194,7 +194,9 @@ def install_guards(tmp: Path, start_user: str) -> dict:
     real_call = mcp_client.MCPClientPool.call_tool
 
     async def guarded_call(self, server_name: str, tool_name: str, args: dict) -> str:  # noqa: ANN001
-        if server_name in READ_ONLY_MCP_SERVERS or (server_name, tool_name) in READ_ONLY_MCP:
+        # Home Assistant prefixes its tools ("llm__GetDateTime"); match on the bare name.
+        bare = tool_name.rsplit("__", 1)[-1]
+        if server_name in READ_ONLY_MCP_SERVERS or (server_name, bare) in READ_ONLY_MCP:
             blocked["mcp_allowed"].append(f"{server_name}__{tool_name}")
             return await real_call(self, server_name, tool_name, args)
         blocked["mcp"].append(f"{server_name}__{tool_name} {json.dumps(args)[:120]}")
