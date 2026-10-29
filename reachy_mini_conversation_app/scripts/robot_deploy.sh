@@ -2,6 +2,7 @@
 # Deploy the committed app code to the robot — forward only, gated, recorded.
 #
 #   scripts/robot_deploy.sh [--restart]              deploy HEAD (must pass gates + eval)
+#   scripts/robot_deploy.sh --override "<reason>"    deploy HEAD without a passing eval verdict (recorded)
 #   scripts/robot_deploy.sh --rollback <commit>      deploy an older commit on purpose
 #   scripts/robot_deploy.sh --init                   first deploy: record HEAD as the baseline
 #   scripts/robot_deploy.sh --status                 show what the robot is running
@@ -56,6 +57,7 @@ verify_robot() {
 mode="forward"
 target=""
 restart=0
+override=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --rollback) mode="rollback"; target="${2:-}"; [ -n "$target" ] || die "--rollback needs a commit"; shift ;;
@@ -63,6 +65,7 @@ while [ $# -gt 0 ]; do
     --status) mode="status" ;;
     --verify) mode="verify"; target="${2:-}"; [ -n "$target" ] && shift ;;
     --restart) restart=1 ;;
+    --override) override="${2:-}"; [ -n "$override" ] || die "--override needs a reason"; shift ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
@@ -129,7 +132,9 @@ if [ "$mode" = "forward" ]; then
 fi
 
 # 4. Eval verdict required for forward deploys.
-if [ "$mode" = "forward" ]; then
+if [ "$mode" = "forward" ] && [ -n "$override" ]; then
+  say "OVERRIDE: deploying $short without a passing eval verdict — $override"
+elif [ "$mode" = "forward" ]; then
   verdict="$EVAL_RESULTS/$sha/verdict.json"
   [ -f "$verdict" ] || die "no eval verdict for $short — run scripts/eval/run_eval.sh first"
   grep -q '"pass": true' "$verdict" || die "eval did not pass for $short — see $verdict"
@@ -159,7 +164,9 @@ robot "set -e; rm -rf ${PKG_DIR}.new; cp -a $stage ${PKG_DIR}.new; rm -rf ${PKG_
 robot "/venvs/apps_venv/bin/python -c 'import reachy_mini_gemini_live.gemini_live, reachy_mini_gemini_live.main' >/dev/null 2>&1" ||
   die "import check failed on the robot — restore with: --rollback ${current:-<previous>}"
 
-robot "echo $sha > $STATE_DIR/DEPLOYED; echo '$ts $mode $sha' >> $STATE_DIR/history.log"
+note=""
+[ -n "$override" ] && note=" override: ${override//\'/}"
+robot "echo $sha > $STATE_DIR/DEPLOYED; echo '$ts $mode $sha$note' >> $STATE_DIR/history.log"
 # What the robot runs is what the next candidate must beat (the eval ratchet).
 [ "$mode" = "forward" ] && echo "$sha" >"${REACHY_EVAL_DIR:-$HOME/.reachy_eval}/baseline"
 say "robot now runs $short ($(git -C "$REPO_ROOT" log -1 --format=%s "$sha"))"
