@@ -451,8 +451,9 @@ class GeminiLiveHandler(AsyncStreamHandler):
         if language:
             name = "English" if language.lower().startswith("en") else f"the language {language}"
             notes.append(
-                f"Always reply in {name}, even when what you heard looks like another language: short "
-                "or unclear words are often mis-transcribed. If you can't make it out, ask them to repeat."
+                f"Start in {name} and keep replying in the conversation's main language. Only switch "
+                "when someone asks you to. A short or unclear word that looks like another language is "
+                "almost always mis-transcribed: don't switch for it, ask them to repeat if you can't make it out."
             )
         return "<session_notes>\n" + "\n".join(f"- {n}" for n in notes) + "\n</session_notes>"
 

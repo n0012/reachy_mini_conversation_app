@@ -22,7 +22,7 @@ async def test_background_speech_rule_is_always_present(memory_enabled: bool, mo
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("env", "expect"), [(None, "Always reply in English"), ("", None)])
+@pytest.mark.parametrize(("env", "expect"), [(None, "Start in English"), ("", None)])
 async def test_language_rule_follows_the_pin(env, expect, monkeypatch) -> None:
     from reachy_mini_gemini_live import gemini_live
 
@@ -35,4 +35,4 @@ async def test_language_rule_follows_the_pin(env, expect, monkeypatch) -> None:
 
     notes = await gemini_live.GeminiLiveHandler(deps)._session_notes("someone", None)
 
-    assert (expect in notes) if expect else ("Always reply in" not in notes)
+    assert (expect in notes) if expect else ("Only switch" not in notes)
