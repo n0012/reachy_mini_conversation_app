@@ -9,6 +9,7 @@ Audio formats (per Gemini Live API spec):
 """
 
 import os
+import re
 import json
 import stat
 import uuid
@@ -119,6 +120,19 @@ def _convert_schema_types(schema: Any) -> Any:
         result.pop(unsupported_key, None)
 
     return result
+
+
+# Non-answers Gemini Live speaks or transcribes instead of staying silent: "---", "・",
+# "<!-- No response required -->", "(No response needed)", "<no speech detected>",
+# "<no speech>{pause}". Markup is stripped first; nothing alphanumeric left = not speech.
+_PLACEHOLDER_MARKUP_RE = re.compile(
+    r"<!--.*?-->|<[^<>]*>|\{[^{}]*\}|\(\s*(no response|no reply|silence|silent)[^)]*\)", re.I | re.S
+)
+
+
+def _is_placeholder(text: str) -> bool:
+    """Return True if an assistant transcript is a non-answer rather than real speech."""
+    return not any(c.isalnum() for c in _PLACEHOLDER_MARKUP_RE.sub("", text))
 
 
 def _env_flag(name: str, default: bool) -> bool:
@@ -254,6 +268,11 @@ class GeminiLiveHandler(AsyncStreamHandler):
             if s.startswith('"') and any(k in s for k in ('"fact":', '"memory_id":', '"status":', '"matches":')):
                 logger.debug("Dropping JSON fragment echo: %.80s", s)
                 return
+            # Placeholders never reach the dashboard or the stuck-response detector:
+            # two identical ones used to force a session restart (and a re-greeting).
+            if _is_placeholder(s):
+                logger.info("Dropping placeholder non-answer: %.80r", s)
+                return
 
         self._session_transcript.append({"role": role, "content": transcript})
         await self.output_queue.put(AdditionalOutputs({"role": role, "content": transcript}))
@@ -300,6 +319,9 @@ class GeminiLiveHandler(AsyncStreamHandler):
         if self.deps.head_wobbler is not None:
             self.deps.head_wobbler.request_reset_after_current_audio()
         self._turn_count += 1
+        # An idle nudge answered with speech instead of a tool call must not mark the
+        # next real tool call as idle.
+        self.is_idle_tool_call = False
         if self._memory_enabled and self._turn_count % _MID_SESSION_SAVE_EVERY_N_TURNS == 0:
             asyncio.create_task(self._mid_session_memory_save())
 
@@ -752,8 +774,6 @@ class GeminiLiveHandler(AsyncStreamHandler):
                 except Exception as ve:
                     logger.warning("Failed to push camera snapshot to Gemini: %s", ve)
 
-            console_content = json.dumps(tool_result)
-
             # Scheduling hints for when NON_BLOCKING is supported on this model.
             # SILENT: background ops the user doesn't need announced (memory, motion, tracking)
             # WHEN_IDLE: announce at next natural pause (camera result, task status)
@@ -818,7 +838,8 @@ class GeminiLiveHandler(AsyncStreamHandler):
                         }
                     )
                 )
-            # Suppress noisy tool result assistant-echo for all known tool types
+            # The raw-result echo renders as a collapsible "Used tool" panel in the Gradio UI;
+            # the headless dashboard would show it as JSON next to the tool badge, so skip it there.
             _SUPPRESS_CONSOLE_TOOLS = {
                 "remember",
                 "identify_user",
@@ -831,12 +852,12 @@ class GeminiLiveHandler(AsyncStreamHandler):
                 "head_tracking",
                 "move_head",
             }
-            if bg_tool.tool_name not in _SUPPRESS_CONSOLE_TOOLS:
+            if self.gradio_mode and bg_tool.tool_name not in _SUPPRESS_CONSOLE_TOOLS:
                 await self.output_queue.put(
                     AdditionalOutputs(
                         {
                             "role": "assistant",
-                            "content": console_content,
+                            "content": json.dumps(tool_result),
                             "metadata": {
                                 "title": f"🛠️ Used tool {bg_tool.tool_name}",
                                 "status": "done",
