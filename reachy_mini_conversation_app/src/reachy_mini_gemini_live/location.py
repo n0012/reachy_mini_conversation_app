@@ -24,12 +24,26 @@ logger = logging.getLogger(__name__)
 # Countries that use Fahrenheit (US, Bahamas, Cayman Islands, Liberia, Palau)
 _FAHRENHEIT_COUNTRIES = {"US", "BS", "KY", "LR", "PW"}
 
+# The user's timezone from the last lookup (the robot's own clock may be set to another zone).
+_local_tz: str = ""
+
+
+def local_now() -> datetime:
+    """Return the current time in the user's timezone (UTC until a lookup succeeds)."""
+    if _local_tz:
+        try:
+            return datetime.now(ZoneInfo(_local_tz))
+        except Exception:
+            pass
+    return datetime.now(tz=ZoneInfo("UTC"))
+
 
 def get_location_context() -> str:
     """Return a system prompt block describing the inferred local context.
 
     Returns empty string if the lookup fails — never raises.
     """
+    global _local_tz
     try:
         with urllib.request.urlopen("https://ipinfo.io/json", timeout=5) as resp:
             data = json.loads(resp.read())
@@ -49,6 +63,7 @@ def get_location_context() -> str:
         # Compute current local time so the model doesn't default to UTC
         local_time_str = ""
         if timezone:
+            _local_tz = timezone
             try:
                 tz = ZoneInfo(timezone)
                 now = datetime.now(tz)

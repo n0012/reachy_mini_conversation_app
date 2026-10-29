@@ -104,6 +104,10 @@ class MemoryBackend(Protocol):
         """Persist a completed session transcript. Returns "saved", "skipped" or "failed"."""
         ...
 
+    async def save_episode(self, profile: str, transcript: list[dict], user_id: str | None = None) -> str:
+        """Store a dated summary of a finished conversation. Returns "saved", "skipped" or "failed"."""
+        ...
+
     async def remember(
         self, profile: str, fact: str, user_id: str | None = None, lifetime_days: int | None = None
     ) -> bool:
@@ -207,9 +211,23 @@ OLDER_MAX = DEFAULT_TOP_K  # most relevant older memories shown (who they are, f
 _APPEARANCE = re.compile(r"visual id|physical description|\b(eyes|hair|beard|glasses|freckles)\b", re.I)
 
 
+EPISODE_DAYS = 14.0  # conversation summaries from this many days are shown at session start
+EPISODE_MAX = 6
+EPISODE_MODEL = os.getenv("REACHY_MINI_EPISODE_MODEL", "gemini-3.8-flash")
+
+
+def _is_episode(memory: dict) -> bool:
+    return ((memory.get("metadata") or {}).get("kind") or {}).get("stringValue") == "episode"
+
+
+def _part_of_day(dt: datetime) -> str:
+    return "morning" if dt.hour < 12 else "afternoon" if dt.hour < 17 else "evening" if dt.hour < 22 else "night"
+
+
 def _age_days_of(memory: dict) -> float | None:
-    """Days since a memory was created (falls back to its update time)."""
-    ts = memory.get("createTime") or memory.get("updateTime")
+    """Days since what a memory describes happened: its event time, else when it was created."""
+    event = ((memory.get("metadata") or {}).get("event_time") or {}).get("timestampValue")
+    ts = event or memory.get("createTime") or memory.get("updateTime")
     if not ts:
         return None
     try:
@@ -255,9 +273,10 @@ def _format_dated_context(recent: list[dict], older: list[dict], faces: list[dic
         lines.append("</vertex_memory_bank>")
     if recent:
         lines.append(
-            "<recent_conversations>\nSaved in the last few days, newest first, with how long ago "
-            "(the memories above are older). For small talk and catching up, draw on these rather "
-            "than older memories, and never present an older memory as something recent."
+            "<recent_conversations>\nRecent conversations and what was saved lately, newest first, "
+            "with how long ago (the memories above are older). For small talk and catching up, draw "
+            "on these rather than older memories, and never present an older memory as something "
+            "recent."
         )
         lines += [f"- {f['fact']} ({_ago(f.get('age_days'))})" for f in recent]
         lines.append("</recent_conversations>")
@@ -419,16 +438,25 @@ class VertexMemoryBackend:
         ]
         faces.sort(key=lambda f: (f["user"] != scope_user, f["user"]))  # the active user first
         face_ids = {f["memory_id"] for f in faces}
-        recent = []
+        recent, episodes, episode_ids = [], [], set()
         for m in listed:
             age = _age_days_of(m)
             if m.get("scope", {}).get("user_id") != scope_user or m.get("name") in face_ids:
                 continue
-            if m.get("fact") and m.get("name") and age is not None and age < RECENT_DAYS:
-                recent.append({"memory_id": m["name"], "fact": m["fact"], "age_days": age})
+            if not (m.get("fact") and m.get("name")) or age is None:
+                continue
+            entry = {"memory_id": m["name"], "fact": m["fact"], "age_days": age}
+            if _is_episode(m):
+                episode_ids.add(m["name"])
+                if age < EPISODE_DAYS:
+                    episodes.append(entry)
+            elif age < RECENT_DAYS:
+                recent.append(entry)
+        # Past conversations (dated summaries) and freshly saved facts, newest first.
+        episodes.sort(key=lambda f: f["age_days"])
         recent.sort(key=lambda f: f["age_days"])
-        recent = recent[:RECENT_MAX]
-        seen = {f["memory_id"] for f in recent}
+        recent = sorted(episodes[:EPISODE_MAX] + recent[:RECENT_MAX], key=lambda f: f["age_days"])
+        seen = {f["memory_id"] for f in recent} | episode_ids
         older = [
             f
             for f in relevant
@@ -545,6 +573,60 @@ class VertexMemoryBackend:
             ),
         )
         return "saved" if ok else "failed"
+
+    async def save_episode(self, profile: str, transcript: list[dict], user_id: str | None = None) -> str:
+        """Store a one-line, dated summary of a finished conversation, verbatim.
+
+        Extracted facts lose their dates (consolidation rewrites them), so each conversation also
+        gets its own record — "Conversation on Thursday October 29, 2026, evening: ..." with an
+        event_time — created directly so consolidation can't merge it away.
+        """
+        meaningful = [t for t in transcript if self._is_meaningful_turn(t)]
+        if sum(len(t.get("content", "")) for t in meaningful if t.get("role") == "user") < 40:
+            return "skipped"
+        who = (user_id or get_active_user()).title()
+        dialogue = "\n".join(f"{'Robot' if t['role'] != 'user' else who}: {t['content']}" for t in meaningful)[-12000:]
+        from reachy_mini_gemini_live.location import local_now
+
+        now = local_now()
+        prompt = (
+            f"Here is a conversation between {who} and their home robot on {now:%A %B %-d, %Y}.\n\n"
+            f"{dialogue}\n\n"
+            f"In one or two short sentences, say what {who} talked about: happenings, plans, news, "
+            "feelings, requests. Skip greetings and small talk about the robot itself. Write in the "
+            f"third person ({who} ...). Turn relative dates into calendar dates using the date above. "
+            "If nothing worth remembering was said, reply NONE."
+        )
+        try:
+            from google import genai as _genai
+
+            client = _genai.Client(api_key=os.environ.get("GEMINI_API_KEY", "").strip())
+            resp = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: client.models.generate_content(model=EPISODE_MODEL, contents=prompt)
+            )
+            summary = " ".join((resp.text or "").split())
+        except Exception as exc:
+            logger.warning("Memory: conversation summary failed: %s", exc)
+            return "failed"
+        if not summary or summary.upper().startswith("NONE"):
+            return "skipped"
+        body = {
+            "fact": f"Conversation on {now:%A %B %-d, %Y}, {_part_of_day(now)}: {summary}",
+            "scope": self._scope(profile, user_id),
+            "metadata": {
+                "event_time": {"timestampValue": now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")},
+                "kind": {"stringValue": "episode"},
+            },
+        }
+        try:
+            await asyncio.get_event_loop().run_in_executor(
+                None, lambda: _api("POST", f"{self._base}/{self._parent}/memories", body, timeout=GENERATE_TIMEOUT_S)
+            )
+        except Exception as exc:
+            logger.warning("Memory: conversation record not saved: %s", exc)
+            return "failed"
+        logger.info("Memory: saved conversation record (user=%r profile=%r)", who, profile)
+        return "saved"
 
     async def remember(
         self,
@@ -951,6 +1033,10 @@ class FileMemoryBackend:
             "applied": 0,
             "summary": "FileMemoryBackend does not support compaction",
         }
+
+    async def save_episode(self, profile: str, transcript: list[dict], user_id: str | None = None) -> str:
+        """Conversation records need Memory Bank; the file backend keeps its last.md summary instead."""
+        return "skipped"
 
     async def save_session(self, profile: str, transcript: list[dict], user_id: str | None = None) -> str:
         """Write the session transcript to last.md. Returns "saved" or "skipped"."""

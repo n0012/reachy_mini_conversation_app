@@ -365,6 +365,13 @@ class GeminiLiveHandler(AsyncStreamHandler):
             await self.output_queue.put(AdditionalOutputs({"role": "memory", "content": "⚠️ memory save failed"}))
         else:
             logger.info("Memory: %s save %s (user=%r profile=%r)", reason, result, user_id, profile)
+        if reason in ("sleep", "shutdown"):
+            # The conversation is over: also keep a dated one-line record of it.
+            try:
+                episode = await self._memory.save_episode(profile, transcript, user_id=user_id)
+                logger.info("Memory: conversation record %s (user=%r profile=%r)", episode, user_id, profile)
+            except Exception as exc:
+                logger.warning("Memory: conversation record failed: %s", exc)
         return result
 
     async def _session_notes(self, user_id: str, memory_error: str | None) -> str:
