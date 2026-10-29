@@ -610,6 +610,9 @@ class VertexMemoryBackend:
             f"In one or two short sentences, say what {who} talked about: happenings, plans, news, "
             "feelings, requests. Skip greetings and small talk about the robot itself. Write in the "
             f"third person ({who} ...). Turn relative dates into calendar dates using the date above. "
+            f"Only record what {who} said in their own words. The robot's lines are context only: "
+            f"never record something because the robot said or recalled it, and if {who} corrected "
+            "the robot, keep the correction, not the mistake. "
             "If nothing worth remembering was said, reply NONE."
         )
         try:

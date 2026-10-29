@@ -65,6 +65,7 @@ async def test_finished_conversation_is_saved_verbatim_with_its_date(vertex, mon
     assert await vertex.save_episode("default", TRANSCRIPT, user_id="nick") == "saved"
 
     assert "Thursday October 29, 2026" in prompts[0]
+    assert "never record something because the robot said" in prompts[0]  # no self-confirming memories
     (create,) = calls
     assert create["method"] == "POST" and create["url"].endswith("/memories")  # created, not generate/consolidated
     assert create["body"]["fact"].startswith("Conversation on Thursday October 29, 2026, evening: Nick said")
