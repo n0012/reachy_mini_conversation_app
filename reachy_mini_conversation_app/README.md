@@ -28,7 +28,7 @@ A fork of the [Pollen Robotics conversation app](https://huggingface.co/spaces/p
 
 | Feature | Base app | This fork |
 |---|---|---|
-| AI backend | HF / OpenAI / Gemini | Gemini Live only (`gemini-3.1-flash-live-preview`) |
+| AI backend | HF / OpenAI / Gemini | Gemini Live only (`gemini-3.8-live`) |
 | Persistent memory | ✗ | ✅ Vertex AI Agent Engine — per-user, cross-session |
 | MCP tool ecosystem | ✗ | ✅ Per-profile servers with secure credential injection |
 | Home Assistant | ✗ | ✅ Full home control via HA MCP (lights, climate, media, locks) |
@@ -50,7 +50,7 @@ Four Google Cloud pillars power this app:
 │                  Reachy Mini Robot                  │
 │                                                     │
 │  Microphone → Gemini Live API → Speaker             │
-│               (gemini-3.1-flash-live-preview)       │
+│               (gemini-3.8-live)       │
 │               ↕                                     │
 │  ┌────────────────────┐  ┌─────────────────────┐   │
 │  │  Vertex AI Agent   │  │   MCP Tool Servers  │   │
@@ -101,7 +101,7 @@ This app uses two separate Google authentication paths:
 |---|---|---|
 | What it's for | Gemini Live API (voice/video streaming) | Memory Bank read/write |
 | Where to get it | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | GCP service account key |
-| Why separate? | `gemini-3.1-flash-live-preview` is only available via AI Studio endpoint — not Vertex AI |
+| Why separate? | The Live session runs on the AI Studio endpoint; memory runs on Vertex AI Agent Engine |
 | Auth method | `GEMINI_API_KEY` env var | Service account JSON (pasted in setup wizard) |
 
 > **Note on auth roadmap:** The service account key approach is functional but requires manual rotation. OAuth / ADC is being considered as a future alternative — contributions welcome.
@@ -213,7 +213,7 @@ Reachy uses Gemini's vision to identify users by appearance — no face recognit
 
 In the Personality Studio, click **🧹 Compact memories** to run an LLM-driven dedup pass over the active user's memory store. Two-step with a preview:
 
-1. **Dry run** — `gemini-2.5-flash` reads the current memory list and proposes a plan: which memories to delete (duplicates, contradictions, stale ephemerals) and which to merge (overlapping facts that should be consolidated).
+1. **Dry run** — `gemini-4-argon` reads the current memory list and proposes a plan: which memories to delete (duplicates, contradictions, stale ephemerals) and which to merge (overlapping facts that should be consolidated).
 2. **Preview** — the proposed actions render as cards (red = delete, teal = merge) so you can verify before anything is touched.
 3. **Apply** — clicking Apply executes the previewed plan exactly (no re-analysis, so what you saw is what you get).
 
@@ -485,7 +485,7 @@ Files excluded from HuggingFace uploads are listed in `.hfignore` (private profi
 | `GCP_LOCATION` | ✅ | Default: `us-central1` |
 | `VERTEX_REASONING_ENGINE_ID` | ✅ | Agent Engine instance ID |
 | `GOOGLE_APPLICATION_CREDENTIALS` | ✅ | Path to service account key JSON |
-| `MODEL_NAME` | optional | Default: `gemini-3.1-flash-live-preview` |
+| `MODEL_NAME` | optional | Default: `gemini-3.8-live` |
 | `REACHY_MINI_CUSTOM_PROFILE` | optional | Profile to load on startup |
 | `REACHY_MINI_PROFILES_OVERRIDE` | optional | Absolute path to profiles directory |
 | `REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY` | optional | Path to additional tool `.py` files |
@@ -558,13 +558,13 @@ Key files (paths relative to `src/reachy_mini_gemini_live/`):
 
 ## Live API tool behavior
 
-### Support matrix (`gemini-3.1-flash-live-preview`)
+### Support matrix (`gemini-3.8-live`)
 
 | Feature | Supported |
 |---|---|
 | Google Search grounding | ✅ |
-| Function calling (synchronous) | ✅ |
-| Function calling (async / NON_BLOCKING) | ❌ Gemini 2.5 Flash only |
+| Function calling | ✅ (model waits for the tool result before answering) |
+| Session resumption | ✅ (unexpected disconnects resume the same conversation) |
 | Google Maps, code execution, URL context | ❌ |
 
 ### Scheduling hints
@@ -583,8 +583,8 @@ Applied in `gemini_live.py:_handle_tool_result()` to control how the model annou
 
 | Issue | Root cause | Workaround |
 |---|---|---|
-| Session ends after ~10 min | Live API hard limit | Automatic restart; memory saves on close |
-| Function calling blocks audio | `gemini-3.1-flash-live-preview` synchronous only | Scheduling hints already set; `NON_BLOCKING` staged for when 3.1 supports async |
+| Connection resets periodically | Live API connection lifetime (server sends go_away) | Resumes the same session via session resumption; memory saves on close |
+| Scheduling hints are advisory only | Sent inside the response payload, not `FunctionResponse.scheduling` | Move to the typed field once SILENT/WHEN_IDLE behaviour is tested per tool |
 | Google Search results stale on re-ask | Grounding caches per topic per session | Use MCP function tools for real-time endpoints |
 
 ---

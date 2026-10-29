@@ -19,6 +19,8 @@ from .config import (
     get_default_voice_for_backend,
     get_available_voices_for_backend,
 )
+
+
 if TYPE_CHECKING:
     from .gemini_live import GeminiLiveHandler
 from .headless_personality import (
@@ -156,12 +158,21 @@ def mount_personality_routes(
         try:
             logger.info(
                 "Headless save: name=%r voice=%r grounding=%s instr_len=%d tools_len=%d",
-                name_s, voice, grounding, len(instructions), len(tools_text),
+                name_s,
+                voice,
+                grounding,
+                len(instructions),
+                len(tools_text),
             )
-            _write_profile(name_s, instructions, tools_text,
-                           voice or get_default_voice_for_backend(),
-                           grounding=grounding, mcp_servers_json=mcp_servers_json,
-                           memory=memory)
+            _write_profile(
+                name_s,
+                instructions,
+                tools_text,
+                voice or get_default_voice_for_backend(),
+                grounding=grounding,
+                mcp_servers_json=mcp_servers_json,
+                memory=memory,
+            )
             value = name_s
             choices = [DEFAULT_OPTION, *list_personalities()]
             return {"ok": True, "value": value, "choices": choices}

@@ -10,10 +10,10 @@ class RememberTool(Tool):
 
     name = "remember"
     description = (
-        "Save a fact to long-term memory. "
-        "Call this when you learn something worth remembering across future sessions — "
-        "names, preferences, relationships, recurring topics. "
-        "Do not call this for trivial or one-off details. "
+        "Save a fact to long-term memory right now. "
+        "The whole conversation is automatically distilled into memory when it ends, "
+        "so only call this when the user explicitly asks you to remember something, "
+        "or to correct a fact you got wrong. Do not call it for details you merely heard. "
         "If the fact is intentionally short-lived (e.g. 'user is at the airport today', "
         "'feeling sick this week'), set lifetime_days to auto-expire it. "
         "Default is permanent."
@@ -38,6 +38,7 @@ class RememberTool(Tool):
     }
 
     async def __call__(self, deps: ToolDependencies, **kwargs: Any) -> Dict[str, Any]:
+        """Save the fact to long-term memory."""
         fact: str = kwargs.get("fact", "").strip()
         if not fact:
             return {"status": "error", "message": "No fact provided."}
@@ -53,7 +54,11 @@ class RememberTool(Tool):
 
         memory_enabled = getattr(deps, "memory_enabled", False)
         if memory is not None and memory_enabled:
-            await memory.remember(profile, fact, user_id=user_id, lifetime_days=lifetime_days)
+            if not await memory.remember(profile, fact, user_id=user_id, lifetime_days=lifetime_days):
+                return {
+                    "status": "error",
+                    "message": "Long-term memory is unavailable right now — tell the user it wasn't saved.",
+                }
             return {
                 "status": "remembered",
                 "fact": fact,

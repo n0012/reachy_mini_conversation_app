@@ -1,7 +1,9 @@
+import asyncio
 import logging
 from typing import Any, Dict, Tuple, Literal
 
 from reachy_mini.utils import create_head_pose
+from reachy_mini_gemini_live.robot_health import motors_off_error
 from reachy_mini_gemini_live.tools.core_tools import Tool, ToolDependencies
 from reachy_mini_gemini_live.dance_emotion_moves import GotoQueueMove
 
@@ -43,6 +45,10 @@ class MoveHead(Tool):
             return {"error": "direction must be a string"}
         direction: Direction = direction_raw  # type: ignore[assignment]
         logger.info("Tool call: move_head direction=%s", direction)
+
+        motors_off = await asyncio.to_thread(motors_off_error, deps.reachy_mini)
+        if motors_off:
+            return motors_off
 
         deltas = self.DELTAS.get(direction, self.DELTAS["front"])
         target = create_head_pose(*deltas, degrees=True)

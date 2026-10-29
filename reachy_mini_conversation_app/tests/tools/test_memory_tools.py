@@ -1,14 +1,13 @@
 """Tests for the recall, forget, and remember tools."""
 
 from __future__ import annotations
-
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
-from reachy_mini_gemini_live.tools.recall import RecallTool
 from reachy_mini_gemini_live.tools.forget import ForgetTool
+from reachy_mini_gemini_live.tools.recall import RecallTool
 from reachy_mini_gemini_live.tools.remember import RememberTool
 
 
@@ -27,10 +26,14 @@ def _deps(memory=None, memory_enabled=True, profile="yuki", user="nick"):
 
 @pytest.mark.asyncio
 async def test_recall_returns_matches_with_memory_ids():
-    memory = SimpleNamespace(search=AsyncMock(return_value=[
-        {"memory_id": "memories/abc", "fact": "Nick lives in Denver.", "age_days": 30.5},
-        {"memory_id": "memories/xyz", "fact": "Nick drinks black coffee.", "age_days": 2.0},
-    ]))
+    memory = SimpleNamespace(
+        search=AsyncMock(
+            return_value=[
+                {"memory_id": "memories/abc", "fact": "Nick lives in Denver.", "age_days": 30.5},
+                {"memory_id": "memories/xyz", "fact": "Nick drinks black coffee.", "age_days": 2.0},
+            ]
+        )
+    )
     out = await RecallTool()(_deps(memory=memory), query="coffee")
     assert out["status"] == "ok"
     assert out["count"] == 2
@@ -165,7 +168,10 @@ async def test_remember_stores_permanent_by_default():
     assert out["status"] == "remembered"
     assert out["lifetime_days"] is None
     memory.remember.assert_awaited_once_with(
-        "yuki", "Nick prefers black coffee.", user_id="nick", lifetime_days=None,
+        "yuki",
+        "Nick prefers black coffee.",
+        user_id="nick",
+        lifetime_days=None,
     )
 
 
@@ -176,7 +182,10 @@ async def test_remember_passes_lifetime_days_through():
     assert out["status"] == "remembered"
     assert out["lifetime_days"] == 1
     memory.remember.assert_awaited_once_with(
-        "yuki", "At airport", user_id="nick", lifetime_days=1,
+        "yuki",
+        "At airport",
+        user_id="nick",
+        lifetime_days=1,
     )
 
 

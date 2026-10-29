@@ -8,11 +8,11 @@ avoid coupling and keep responsibilities clear for headless mode.
 """
 
 from __future__ import annotations
+import os
 from typing import List
 from pathlib import Path
 
-import os
-from .config import DEFAULT_PROFILES_DIRECTORY, REACHY_MINI_DIR
+from .config import REACHY_MINI_DIR, DEFAULT_PROFILES_DIRECTORY
 
 
 DEFAULT_OPTION = "(built-in default)"
@@ -24,7 +24,7 @@ USER_PROFILES_DIR: Path = Path(_env_user_dir) if _env_user_dir else REACHY_MINI_
 
 
 def _user_profiles_root() -> Path:
-    """Persistent user profiles dir — survives app updates."""
+    """Return the persistent user profiles dir, which survives app updates."""
     USER_PROFILES_DIR.mkdir(parents=True, exist_ok=True)
     return USER_PROFILES_DIR
 
@@ -107,6 +107,7 @@ def available_tools_for(selected: str) -> List[str]:
     toggleable per-profile and remain visible.
     """
     from reachy_mini_gemini_live.tools.tool_constants import SystemTool
+
     # Exclude system tools (always loaded) + internal infrastructure modules
     # that don't define a user-facing Tool subclass.
     excluded = {t.value for t in SystemTool} | {

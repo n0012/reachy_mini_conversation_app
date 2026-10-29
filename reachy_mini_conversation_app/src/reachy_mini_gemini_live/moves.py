@@ -56,6 +56,7 @@ logger = logging.getLogger(__name__)
 
 # Configuration constants
 CONTROL_LOOP_FREQUENCY_HZ = 60.0  # Hz - Target frequency for the movement control loop
+PAUSED_PERIOD_S = 0.1  # loop period while output is paused (asleep): nothing is sent, so tick slowly
 
 # Type definitions
 FullBodyPose = Tuple[NDArray[np.float32], Tuple[float, float], float]  # (head_pose_4x4, antennas, body_yaw)
@@ -270,6 +271,7 @@ class MovementManager:
         self.target_period = 1.0 / self.target_frequency
 
         self._stop_event = threading.Event()
+        self._output_paused = threading.Event()  # set while sleeping: loop runs, no set_target
         self._thread: threading.Thread | None = None
         self._is_listening = False
         self._last_commanded_pose: FullBodyPose = clone_full_body_pose(self.state.last_primary_pose)
@@ -331,6 +333,19 @@ class MovementManager:
         Thread-safe: executed by the worker thread via the command queue.
         """
         self._command_queue.put(("clear_queue", None))
+
+    def pause_output(self) -> None:
+        """Stop sending targets so a goto (e.g. the sleep pose) can own the motors.
+
+        Without this the 100Hz loop drives the head back to neutral/breathing
+        between gotos and the head bobs.
+        """
+        self.clear_move_queue()
+        self._output_paused.set()
+
+    def resume_output(self) -> None:
+        """Resume sending targets after pause_output()."""
+        self._output_paused.clear()
 
     def set_speech_offsets(self, offsets: Tuple[float, float, float, float, float, float]) -> None:
         """Update speech-induced secondary offsets (x, y, z, roll, pitch, yaw).
@@ -646,6 +661,8 @@ class MovementManager:
         self, head: NDArray[np.float32], antennas: Tuple[float, float], body_yaw: float
     ) -> None:
         """Send the fused pose to the robot with throttled error logging."""
+        if self._output_paused.is_set():
+            return
         try:
             self.current_robot.set_target(head=head, antennas=antennas, body_yaw=body_yaw)
         except Exception as e:
@@ -684,7 +701,9 @@ class MovementManager:
         """Compute sleep time to maintain target frequency and update potential freq."""
         computation_time = self._now() - loop_start
         stats.potential_freq = 1.0 / computation_time if computation_time > 0 else float("inf")
-        sleep_time = max(0.0, self.target_period - computation_time)
+        # While output is paused (asleep) nothing is sent, so tick slowly.
+        period = PAUSED_PERIOD_S if self._output_paused.is_set() else self.target_period
+        sleep_time = max(0.0, period - computation_time)
         return sleep_time, stats
 
     def _record_frequency_snapshot(self, stats: LoopFrequencyStats) -> None:

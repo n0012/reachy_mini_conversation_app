@@ -3,8 +3,8 @@
 import logging
 from typing import Any, Dict
 
+from reachy_mini_gemini_live.memory import get_active_user, set_active_user
 from reachy_mini_gemini_live.tools.core_tools import Tool, ToolDependencies
-from reachy_mini_gemini_live.memory import set_active_user, get_active_user
 
 
 logger = logging.getLogger(__name__)
@@ -38,10 +38,30 @@ class IdentifyUserTool(Tool):
     }
 
     # Words that are clearly not names (common speech-recognition artifacts)
-    _NOT_NAMES = {"face", "hey", "yes", "no", "ok", "hi", "hello", "um", "uh", "sure",
-                  "it", "me", "i", "my", "this", "that", "the", "a", "an"}
+    _NOT_NAMES = {
+        "face",
+        "hey",
+        "yes",
+        "no",
+        "ok",
+        "hi",
+        "hello",
+        "um",
+        "uh",
+        "sure",
+        "it",
+        "me",
+        "i",
+        "my",
+        "this",
+        "that",
+        "the",
+        "a",
+        "an",
+    }
 
     async def __call__(self, deps: ToolDependencies, **kwargs: Any) -> Dict[str, Any]:
+        """Switch the active memory user."""
         user_id = (kwargs.get("user_id") or "").strip().lower().replace(" ", "_")
         if not user_id:
             return {"status": "error", "message": "No user_id provided."}

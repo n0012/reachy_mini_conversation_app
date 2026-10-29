@@ -12,12 +12,14 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
+
 # Stub robot SDK packages unavailable on Mac (pycairo/pygobject require native libs).
 # Must be done before any app module is imported.
 def _stub(name: str) -> types.ModuleType:
     mod = types.ModuleType(name)
     sys.modules[name] = mod
     return mod
+
 
 for _pkg in ("reachy_mini", "reachy_mini_dances_library", "reachy_mini_toolbox"):
     if _pkg not in sys.modules:

@@ -1,6 +1,5 @@
 import os
 import re
-import sys
 import logging
 from pathlib import Path
 
@@ -93,7 +92,8 @@ def get_session_instructions() -> str:
             return text
         logger.warning(
             "Profile '%s' missing or empty — falling back to '%s'",
-            profile, _FALLBACK_PROFILE,
+            profile,
+            _FALLBACK_PROFILE,
         )
 
     # Fallback path: try the built-in reachy-gemini profile, then the bundled default prompt

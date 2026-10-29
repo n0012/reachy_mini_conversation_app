@@ -1,7 +1,6 @@
 """Tests verifying the fork is Gemini-only — no OpenAI code paths remain."""
 
 import importlib
-import types
 
 import pytest
 
@@ -27,7 +26,6 @@ def test_is_gemini_model_ignores_env(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------------------
 # No OpenAI artefacts in the module
 # ---------------------------------------------------------------------------
-
 
 
 def test_no_openai_api_key_in_config() -> None:

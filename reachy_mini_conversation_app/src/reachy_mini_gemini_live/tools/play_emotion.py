@@ -1,6 +1,8 @@
+import asyncio
 import logging
 from typing import Any, Dict
 
+from reachy_mini_gemini_live.robot_health import motors_off_error
 from reachy_mini_gemini_live.tools.core_tools import Tool, ToolDependencies
 
 
@@ -65,6 +67,10 @@ class PlayEmotion(Tool):
             return {"error": "Emotion name is required"}
 
         logger.info("Tool call: play_emotion emotion=%s", emotion_name)
+
+        motors_off = await asyncio.to_thread(motors_off_error, deps.reachy_mini)
+        if motors_off:
+            return motors_off
 
         # Check if emotion exists
         try:

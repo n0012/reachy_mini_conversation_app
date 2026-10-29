@@ -10,45 +10,66 @@ the selected backend and any provided API keys into the app instance's ``.env``
 file when available.
 """
 
-import json
 import os
 import sys
-import threading
+import json
 import time
 import asyncio
 import logging
+import threading
 from typing import List, Optional
 from pathlib import Path
 
-from fastrtc import AdditionalOutputs, audio_to_float32
 from scipy.signal import resample
 
 from reachy_mini import ReachyMini
 from reachy_mini.media.media_manager import MediaBackend
 from reachy_mini_gemini_live.config import (
-    AUTO_SLEEP_MINUTES_RANGE,
-    AVAILABLE_VOICES,
     GEMINI_BACKEND,
     LOCKED_PROFILE,
     REACHY_MINI_DIR,
+    AVAILABLE_VOICES,
     REACHY_MINI_ENV_PATH,
+    AUTO_SLEEP_MINUTES_RANGE,
     config,
     refresh_runtime_config_from_env,
 )
+from reachy_mini_gemini_live.streaming import AdditionalOutputs, audio_to_float32
+from reachy_mini_gemini_live.headless_personality_ui import mount_personality_routes
+
 
 VOICE_STYLES: dict[str, str] = {
-    "Achird": "Friendly", "Achernar": "Soft", "Algenib": "Gravelly",
-    "Algieba": "Smooth", "Alnilam": "Firm", "Aoede": "Breezy",
-    "Autonoe": "Bright", "Callirrhoe": "Easy-going", "Charon": "Informative",
-    "Despina": "Smooth", "Enceladus": "Breathy", "Erinome": "Clear",
-    "Fenrir": "Excitable", "Gacrux": "Mature", "Iapetus": "Clear",
-    "Kore": "Firm", "Laomedeia": "Upbeat", "Leda": "Youthful",
-    "Orus": "Firm", "Pulcherrima": "Forward", "Puck": "Upbeat",
-    "Rasalgethi": "Informative", "Sadachbia": "Lively", "Sadaltager": "Knowledgeable",
-    "Schedar": "Even", "Sulafat": "Warm", "Umbriel": "Easy-going",
-    "Vindemiatrix": "Gentle", "Zephyr": "Bright", "Zubenelgenubi": "Casual",
+    "Achird": "Friendly",
+    "Achernar": "Soft",
+    "Algenib": "Gravelly",
+    "Algieba": "Smooth",
+    "Alnilam": "Firm",
+    "Aoede": "Breezy",
+    "Autonoe": "Bright",
+    "Callirrhoe": "Easy-going",
+    "Charon": "Informative",
+    "Despina": "Smooth",
+    "Enceladus": "Breathy",
+    "Erinome": "Clear",
+    "Fenrir": "Excitable",
+    "Gacrux": "Mature",
+    "Iapetus": "Clear",
+    "Kore": "Firm",
+    "Laomedeia": "Upbeat",
+    "Leda": "Youthful",
+    "Orus": "Firm",
+    "Pulcherrima": "Forward",
+    "Puck": "Upbeat",
+    "Rasalgethi": "Informative",
+    "Sadachbia": "Lively",
+    "Sadaltager": "Knowledgeable",
+    "Schedar": "Even",
+    "Sulafat": "Warm",
+    "Umbriel": "Easy-going",
+    "Vindemiatrix": "Gentle",
+    "Zephyr": "Bright",
+    "Zubenelgenubi": "Casual",
 }
-from reachy_mini_gemini_live.headless_personality_ui import mount_personality_routes
 
 
 try:
@@ -171,10 +192,8 @@ class LocalStream:
         GCP/SA fields are optional (configurable via the settings panel later).
         """
         from reachy_mini_gemini_live.config import REACHY_MINI_ENV_PATH
-        return (
-            REACHY_MINI_ENV_PATH.exists()
-            and bool(os.environ.get("GEMINI_API_KEY", "").strip())
-        )
+
+        return REACHY_MINI_ENV_PATH.exists() and bool(os.environ.get("GEMINI_API_KEY", "").strip())
 
     def _persist_env_value(self, env_name: str, value: str) -> None:
         """Persist a non-empty environment value in memory and in the instance `.env`."""
@@ -303,6 +322,7 @@ class LocalStream:
         def _status_payload() -> dict[str, object]:
             try:
                 from importlib.metadata import version as _pkg_version
+
                 _ver = _pkg_version("reachy-mini-gemini-live")
             except Exception:
                 _ver = "?"
@@ -347,16 +367,18 @@ class LocalStream:
         # GET /config -> current configuration (no secret values)
         @self._settings_app.get("/config")
         def _get_config() -> JSONResponse:
-            return JSONResponse({
-                "has_gemini_key": bool(os.environ.get("GEMINI_API_KEY", "").strip()),
-                "gcp_project_id": os.environ.get("GCP_PROJECT_ID", ""),
-                "gcp_location": os.environ.get("GCP_LOCATION", "us-central1"),
-                "vertex_reasoning_engine_id": os.environ.get("VERTEX_REASONING_ENGINE_ID", ""),
-                "has_credentials": bool(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip()),
-                "google_search_grounding": os.environ.get("GOOGLE_SEARCH_GROUNDING", "") == "1",
-                "auto_sleep_minutes": config.AUTO_SLEEP_MINUTES,
-                "auto_sleep_minutes_range": list(AUTO_SLEEP_MINUTES_RANGE),
-            })
+            return JSONResponse(
+                {
+                    "has_gemini_key": bool(os.environ.get("GEMINI_API_KEY", "").strip()),
+                    "gcp_project_id": os.environ.get("GCP_PROJECT_ID", ""),
+                    "gcp_location": os.environ.get("GCP_LOCATION", "us-central1"),
+                    "vertex_reasoning_engine_id": os.environ.get("VERTEX_REASONING_ENGINE_ID", ""),
+                    "has_credentials": bool(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip()),
+                    "google_search_grounding": os.environ.get("GOOGLE_SEARCH_GROUNDING", "") == "1",
+                    "auto_sleep_minutes": config.AUTO_SLEEP_MINUTES,
+                    "auto_sleep_minutes_range": list(AUTO_SLEEP_MINUTES_RANGE),
+                }
+            )
 
         # POST /config/behavior -> update non-credential behavior settings
         @self._settings_app.post("/config/behavior")
@@ -384,12 +406,15 @@ class LocalStream:
         @self._settings_app.get("/config/memory")
         def _config_memory_get() -> JSONResponse:
             import reachy_mini_gemini_live.memory as _mem
-            return JSONResponse({
-                "top_k": _mem.DEFAULT_TOP_K,
-                "recency_alpha": _mem.RECENCY_ALPHA,
-                "top_k_range": [5, 50],
-                "recency_alpha_range": [0.0, 0.5],
-            })
+
+            return JSONResponse(
+                {
+                    "top_k": _mem.DEFAULT_TOP_K,
+                    "recency_alpha": _mem.RECENCY_ALPHA,
+                    "top_k_range": [5, 50],
+                    "recency_alpha_range": [0.0, 0.5],
+                }
+            )
 
         # POST /config/memory -> persist retrieval tuning knobs to .env
         @self._settings_app.post("/config/memory")
@@ -397,6 +422,7 @@ class LocalStream:
             body = await request.json()
             updates: dict[str, str] = {}
             import reachy_mini_gemini_live.memory as _mem
+
             if "top_k" in body:
                 try:
                     k = max(5, min(50, int(body["top_k"])))
@@ -431,7 +457,9 @@ class LocalStream:
                     {"error": "Memory not enabled for the active profile."},
                     status_code=400,
                 )
-            profile = body.get("profile") or handler.deps.active_profile or config.REACHY_MINI_CUSTOM_PROFILE or "default"
+            profile = (
+                body.get("profile") or handler.deps.active_profile or config.REACHY_MINI_CUSTOM_PROFILE or "default"
+            )
             user_id = body.get("user_id") or getattr(handler.deps, "active_user", None)
             plan = body.get("plan")
             try:
@@ -480,9 +508,13 @@ class LocalStream:
             user_id = body.get("user_id") or user_id
             try:
                 semantic = await backend._retrieve(
-                    profile, query, user_id=user_id,
-                    fetch_k=50, top_k=30,
-                    with_ids=True, max_distance=1.0,
+                    profile,
+                    query,
+                    user_id=user_id,
+                    fetch_k=50,
+                    top_k=30,
+                    with_ids=True,
+                    max_distance=1.0,
                 )
                 seen_ids = {m.get("memory_id") for m in semantic}
                 words = [w.lower().strip(".,?!") for w in query.split() if len(w) > 2]
@@ -490,6 +522,7 @@ class LocalStream:
                 if words:
                     try:
                         from datetime import datetime, timezone
+
                         now = datetime.now(timezone.utc)
                         all_mems = await backend.list_memories(profile, user_id=user_id)
                         for m in all_mems:
@@ -502,7 +535,11 @@ class LocalStream:
                                 age_days: float | None = None
                                 if ts:
                                     try:
-                                        age_days = round((now - datetime.fromisoformat(ts.replace("Z", "+00:00"))).total_seconds() / 86400.0, 1)
+                                        age_days = round(
+                                            (now - datetime.fromisoformat(ts.replace("Z", "+00:00"))).total_seconds()
+                                            / 86400.0,
+                                            1,
+                                        )
                                     except Exception:
                                         pass
                                 keyword_matches.append({"memory_id": mid, "fact": fact, "age_days": age_days})
@@ -526,7 +563,9 @@ class LocalStream:
             profile = body.get("profile") or profile
             user_id = body.get("user_id") or user_id
             try:
-                await backend.remember(profile, fact, user_id=user_id)
+                if not await backend.remember(profile, fact, user_id=user_id):
+                    error = getattr(backend, "last_error", None) or "memory save failed"
+                    return JSONResponse({"error": error}, status_code=502)
                 return JSONResponse({"ok": True})
             except Exception as e:
                 return JSONResponse({"error": str(e)}, status_code=500)
@@ -549,11 +588,17 @@ class LocalStream:
 
         # Keys managed elsewhere — excluded from the custom env var editor
         _MANAGED_KEYS = {
-            "GEMINI_API_KEY", "GCP_PROJECT_ID", "GCP_LOCATION",
-            "VERTEX_REASONING_ENGINE_ID", "GOOGLE_APPLICATION_CREDENTIALS",
-            "GOOGLE_SEARCH_GROUNDING", "REACHY_MINI_CUSTOM_PROFILE",
-            "REACHY_MINI_PROFILES_OVERRIDE", "REACHY_MINI_EXTERNAL_PROFILES_DIRECTORY",
-            "REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY", "MODEL_NAME",
+            "GEMINI_API_KEY",
+            "GCP_PROJECT_ID",
+            "GCP_LOCATION",
+            "VERTEX_REASONING_ENGINE_ID",
+            "GOOGLE_APPLICATION_CREDENTIALS",
+            "GOOGLE_SEARCH_GROUNDING",
+            "REACHY_MINI_CUSTOM_PROFILE",
+            "REACHY_MINI_PROFILES_OVERRIDE",
+            "REACHY_MINI_EXTERNAL_PROFILES_DIRECTORY",
+            "REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY",
+            "MODEL_NAME",
             "REACHY_MINI_AUTO_SLEEP_MINUTES",
         }
 
@@ -561,7 +606,11 @@ class LocalStream:
         @self._settings_app.get("/config/env")
         def _get_env_vars() -> JSONResponse:
             try:
-                lines = REACHY_MINI_ENV_PATH.read_text(encoding="utf-8").splitlines() if REACHY_MINI_ENV_PATH.exists() else []
+                lines = (
+                    REACHY_MINI_ENV_PATH.read_text(encoding="utf-8").splitlines()
+                    if REACHY_MINI_ENV_PATH.exists()
+                    else []
+                )
                 result = []
                 for ln in lines:
                     ln = ln.strip()
@@ -615,28 +664,39 @@ class LocalStream:
         # GET /voices/preview?voice=Sadachbia -> short audio sample as WAV
         @self._settings_app.get("/voices/preview")
         async def _voice_preview(voice: str = "Sadachbia") -> "Response":
-            import wave, io
+            import io
+            import wave
+
             project = os.environ.get("GCP_PROJECT_ID", "").strip()
-            location = os.environ.get("GCP_LOCATION", "us-central1").strip() or "us-central1"
             if not project:
                 return JSONResponse({"error": "not_configured"}, status_code=503)
             try:
                 from google import genai as _genai
                 from google.genai import types as _types
-                client = _genai.Client(vertexai=True, project=project, location=location)
-                resp = await asyncio.get_event_loop().run_in_executor(None, lambda: client.models.generate_content(
-                    model="gemini-3.1-flash-tts-preview",
-                    contents=f"Say naturally: Hello! I'm {voice}, your Reachy Mini assistant.",
-                    config=_types.GenerateContentConfig(
-                        response_modalities=["AUDIO"],
-                        speech_config=_types.SpeechConfig(
-                            voice_config=_types.VoiceConfig(
-                                prebuilt_voice_config=_types.PrebuiltVoiceConfig(voice_name=voice)
-                            )
+
+                # 3.8 TTS is served from the global/us Vertex locations, not us-central1
+                # (GCP_LOCATION stays us-central1 for the Agent Engine memory bank).
+                client = _genai.Client(vertexai=True, project=project, location="global")
+                resp = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: client.models.generate_content(
+                        model="gemini-3.8-flash-lite-tts",
+                        # Plain text only — 3.8 TTS reads style directions ("Say naturally:") aloud.
+                        contents=f"Hello! I'm {voice}, your Reachy Mini assistant.",
+                        config=_types.GenerateContentConfig(
+                            response_modalities=["AUDIO"],
+                            speech_config=_types.SpeechConfig(
+                                voice_config=_types.VoiceConfig(
+                                    prebuilt_voice_config=_types.PrebuiltVoiceConfig(voice_name=voice)
+                                )
+                            ),
                         ),
                     ),
-                ))
-                pcm = resp.candidates[0].content.parts[0].inline_data.data
+                )
+                blob = resp.candidates[0].content.parts[0].inline_data
+                if (blob.mime_type or "").startswith("audio/wav"):
+                    return Response(content=blob.data, media_type="audio/wav")
+                pcm = blob.data
                 buf = io.BytesIO()
                 with wave.open(buf, "wb") as wf:
                     wf.setnchannels(1)
@@ -687,7 +747,16 @@ class LocalStream:
                 REACHY_MINI_DIR.mkdir(parents=True, exist_ok=True)
                 sa_path = REACHY_MINI_DIR / "service_account.json"
 
-                # Only write SA key if real JSON was provided (not empty/placeholder)
+                # Persist all env vars to ~/.reachy_mini_gemini_live/.env
+                updates: dict[str, str] = {
+                    "GCP_PROJECT_ID": payload.gcp_project_id.strip(),
+                    "GCP_LOCATION": payload.gcp_location.strip() or "us-central1",
+                    "VERTEX_REASONING_ENGINE_ID": payload.vertex_reasoning_engine_id.strip(),
+                }
+
+                # Only write SA key if real JSON was provided (not empty/placeholder).
+                # Leave GOOGLE_APPLICATION_CREDENTIALS alone otherwise, so a re-save doesn't
+                # replace a configured credential (e.g. the X.509 workload identity config).
                 sa_json = (payload.service_account_json or "").strip()
                 if sa_json and sa_json != "{}":
                     try:
@@ -696,14 +765,9 @@ class LocalStream:
                         sa_path.chmod(0o600)
                     except json.JSONDecodeError as je:
                         return JSONResponse({"ok": False, "error": f"Invalid JSON: {je}"}, status_code=400)
-
-                # Persist all env vars to ~/.reachy_mini_gemini_live/.env
-                updates: dict[str, str] = {
-                    "GCP_PROJECT_ID": payload.gcp_project_id.strip(),
-                    "GCP_LOCATION": payload.gcp_location.strip() or "us-central1",
-                    "VERTEX_REASONING_ENGINE_ID": payload.vertex_reasoning_engine_id.strip(),
-                    "GOOGLE_APPLICATION_CREDENTIALS": str(sa_path),
-                }
+                    updates["GOOGLE_APPLICATION_CREDENTIALS"] = str(sa_path)
+                elif not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip():
+                    updates["GOOGLE_APPLICATION_CREDENTIALS"] = str(sa_path)
                 if payload.gemini_api_key.strip():
                     updates["GEMINI_API_KEY"] = payload.gemini_api_key.strip()
                 self._persist_env_values(updates)
@@ -711,6 +775,7 @@ class LocalStream:
                 # Set voice in default profile
                 try:
                     from reachy_mini_gemini_live.config import PROFILES_DIRECTORY
+
                     voice_file = Path(PROFILES_DIRECTORY) / "default" / "voice.txt"
                     if voice_file.parent.exists() and payload.voice.strip():
                         voice_file.write_text(payload.voice.strip() + "\n", encoding="utf-8")
@@ -734,6 +799,7 @@ class LocalStream:
                             frame = cw.get_latest_frame() if cw is not None else None
                             if frame is not None:
                                 from reachy_mini_gemini_live.camera_frame_encoding import encode_bgr_frame_as_jpeg
+
                                 jpeg = encode_bgr_frame_as_jpeg(frame)
                                 yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
                         except GeneratorExit:
@@ -743,6 +809,7 @@ class LocalStream:
                         time.sleep(1.0)
                 except GeneratorExit:
                     return
+
             return StreamingResponse(camera_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
 
         @self._settings_app.get("/stream/transcript")
@@ -762,6 +829,7 @@ class LocalStream:
                         time.sleep(0.3)
                 except GeneratorExit:
                     return
+
             return StreamingResponse(
                 transcript_events(),
                 media_type="text/event-stream",
@@ -802,9 +870,12 @@ class LocalStream:
             # Runs in a daemon thread so a stuck speaker never blocks the wizard.
             try:
                 from reachy_mini_gemini_live.setup_announcer import announce_setup_url
+
                 threading.Thread(
-                    target=announce_setup_url, kwargs={"port": 7860},
-                    daemon=True, name="setup-announcer",
+                    target=announce_setup_url,
+                    kwargs={"port": 7860},
+                    daemon=True,
+                    name="setup-announcer",
                 ).start()
             except Exception as _e:
                 logger.debug("Setup announcer failed to start: %s", _e)
@@ -901,12 +972,19 @@ class LocalStream:
                 audio.clear_player()
         self.handler.output_queue = asyncio.Queue()
 
+    def _media_paused(self) -> bool:
+        deep_sleep = getattr(self.handler.deps, "deep_sleep", None)
+        return deep_sleep is not None and deep_sleep.media_paused.is_set()
+
     async def record_loop(self) -> None:
         """Read mic frames from the recorder and forward them to the handler."""
         input_sample_rate = self._robot.media.get_input_audio_samplerate()
         logger.debug(f"Audio recording started at {input_sample_rate} Hz")
 
         while not self._stop_event.is_set():
+            if self._media_paused():
+                await asyncio.sleep(0.1)
+                continue
             audio_frame = self._robot.media.get_audio_sample()
             if audio_frame is not None:
                 await self.handler.receive((input_sample_rate, audio_frame))
@@ -927,7 +1005,10 @@ class LocalStream:
                             content if len(content) < 500 else content[:500] + "…",
                         )
                         role = msg.get("role")
-                        if role in ("user", "assistant", "tool", "search", "memory", "recall_result") and content.strip():
+                        if (
+                            role in ("user", "assistant", "tool", "search", "memory", "recall_result")
+                            and content.strip()
+                        ):
                             entry = {"role": role, "content": content}
                             detail = msg.get("detail")
                             if detail:
@@ -935,6 +1016,8 @@ class LocalStream:
                             self._transcript_buffer.append(entry)
 
             elif isinstance(handler_output, tuple):
+                if self._media_paused():
+                    continue  # deep sleep: no player to push to
                 input_sample_rate, audio_data = handler_output
                 output_sample_rate = self._robot.media.get_output_audio_samplerate()
 

@@ -14,22 +14,23 @@ Memory Bank REST API (no Python SDK required — uses google-auth + urllib):
 """
 
 from __future__ import annotations
-
-import json
-import logging
 import os
-import urllib.error
-import urllib.request
+import re
+import json
+import math
+import time
 import asyncio
-from datetime import date
-from pathlib import Path
+import logging
+import urllib.error
+import urllib.parse
+import urllib.request
 from typing import Protocol, runtime_checkable
+from pathlib import Path
+from datetime import date, datetime, timezone
+from datetime import timedelta as _td
 
 import google.auth
 import google.auth.transport.requests
-import math
-import urllib.parse
-from datetime import datetime, timedelta as _td, timezone
 
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,7 @@ logger = logging.getLogger(__name__)
 MEMORY_SEARCH_QUERY = "What do I know about this user, their preferences, and our recent conversations?"
 
 from reachy_mini_gemini_live.config import REACHY_MINI_DIR  # noqa: E402
+
 
 _DEFAULT_MEMORY_DIR = REACHY_MINI_DIR / "memory"
 _ACTIVE_USER_FILE = REACHY_MINI_DIR / "active_user.json"
@@ -51,10 +53,10 @@ DEFAULT_USER_ID = "unknown"
 # Tuned so a fact from yesterday outranks a slightly more similar fact from
 # 6 months ago, but old facts still surface when nothing recent matches.
 RECENCY_ALPHA = float(os.getenv("REACHY_MINI_RECENCY_ALPHA", "0.15"))  # recency weight (0=off, 1=strong)
-RECENCY_TAU_DAYS = 30.0     # decay constant — bonus ~37% at this age
-MAX_DISTANCE = 1.5          # client-side similarity filter
-DEFAULT_FETCH_K = 50        # over-fetch before re-rank
-DEFAULT_TOP_K = int(os.getenv("REACHY_MINI_TOP_K", "20"))             # memories surfaced per session
+RECENCY_TAU_DAYS = 30.0  # decay constant — bonus ~37% at this age
+MAX_DISTANCE = 1.5  # client-side similarity filter
+DEFAULT_FETCH_K = 50  # over-fetch before re-rank
+DEFAULT_TOP_K = int(os.getenv("REACHY_MINI_TOP_K", "20"))  # memories surfaced per session
 
 
 def get_active_user() -> str:
@@ -83,6 +85,7 @@ def set_active_user(user_id: str) -> None:
 
 # ── Protocol ─────────────────────────────────────────────────────────────────
 
+
 @runtime_checkable
 class MemoryBackend(Protocol):
     """Interface all memory backends must satisfy."""
@@ -91,16 +94,24 @@ class MemoryBackend(Protocol):
         """Return a text block injected into system_instruction at session start."""
         ...
 
-    async def search(self, profile: str, query: str, user_id: str | None = None, top_k: int = 10, with_ids: bool = False) -> list:
+    async def search(
+        self, profile: str, query: str, user_id: str | None = None, top_k: int = 10, with_ids: bool = False
+    ) -> list:
         """Mid-conversation recall — return up to top_k facts matching the query."""
         ...
 
-    async def save_session(self, profile: str, transcript: list[dict], user_id: str | None = None) -> None:
-        """Persist a completed session transcript (fire-and-forget is fine)."""
+    async def save_session(self, profile: str, transcript: list[dict], user_id: str | None = None) -> str:
+        """Persist a completed session transcript. Returns "saved", "skipped" or "failed"."""
         ...
 
-    async def remember(self, profile: str, fact: str, user_id: str | None = None, lifetime_days: int | None = None) -> None:
-        """Store an explicit fact the model decided to keep. lifetime_days makes it expire."""
+    async def save_episode(self, profile: str, transcript: list[dict], user_id: str | None = None) -> str:
+        """Store a dated summary of a finished conversation. Returns "saved", "skipped" or "failed"."""
+        ...
+
+    async def remember(
+        self, profile: str, fact: str, user_id: str | None = None, lifetime_days: int | None = None
+    ) -> bool:
+        """Store an explicit fact the model decided to keep. lifetime_days makes it expire. True on success."""
         ...
 
     async def list_memories(self, profile: str, user_id: str | None = None, page_size: int = 100) -> list[dict]:
@@ -115,7 +126,9 @@ class MemoryBackend(Protocol):
         """Sweep ttl_until-tagged memories whose date is past. Returns count deleted."""
         ...
 
-    async def compact_memories(self, profile: str, user_id: str | None = None, dry_run: bool = True, max_actions: int = 25) -> dict:
+    async def compact_memories(
+        self, profile: str, user_id: str | None = None, dry_run: bool = True, max_actions: int = 25
+    ) -> dict:
         """LLM-driven dedup/cleanup pass. Returns {analyzed, proposed, applied, summary}."""
         ...
 
@@ -136,9 +149,7 @@ def _get_token() -> str:
     """
     global _credentials
     if _credentials is None:
-        _credentials, _ = google.auth.default(
-            scopes=["https://www.googleapis.com/auth/cloud-platform"]
-        )
+        _credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
     if not _credentials.valid:
         try:
             _credentials.refresh(_http_request)
@@ -149,7 +160,14 @@ def _get_token() -> str:
     return _credentials.token  # type: ignore[return-value]
 
 
-def _api(method: str, url: str, body: dict | None = None) -> dict:
+# Reads get one retry; generate gets a longer timeout and no retry (a retried
+# generate can store the same memories twice).
+READ_TIMEOUT_S = 12.0
+GENERATE_TIMEOUT_S = 45.0
+_RETRYABLE_HTTP = {429, 500, 502, 503, 504}
+
+
+def _api(method: str, url: str, body: dict | None = None, timeout: float = 15.0) -> dict:
     token = _get_token()
     data = json.dumps(body).encode() if body else None
     req = urllib.request.Request(
@@ -161,8 +179,119 @@ def _api(method: str, url: str, body: dict | None = None) -> dict:
             "Content-Type": "application/json",
         },
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read())
+
+
+def _is_transient(exc: Exception) -> bool:
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code in _RETRYABLE_HTTP
+    if isinstance(exc, urllib.error.URLError):
+        return isinstance(exc.reason, OSError)
+    return isinstance(exc, (TimeoutError, ConnectionError))
+
+
+def _api_read(method: str, url: str, body: dict | None = None) -> dict:
+    """Idempotent call (GET or :retrieve): retry once on a timeout or transient server error."""
+    try:
+        return _api(method, url, body, timeout=READ_TIMEOUT_S)
+    except Exception as exc:
+        if not _is_transient(exc):
+            raise
+        logger.info("Memory: %s failed transiently (%s), retrying once", url.rsplit("/", 1)[-1][:40], exc)
+        time.sleep(1.0)
+        return _api(method, url, body, timeout=READ_TIMEOUT_S)
+
+
+RECENT_DAYS = 3.0  # memories saved within this many days are "recent conversations"
+RECENT_MAX = 12  # newest recent memories shown at session start
+OLDER_MAX = DEFAULT_TOP_K  # most relevant older memories shown (who they are, family, preferences)
+# Appearance facts, for recognising people by camera. Consolidation rewrites "Visual ID — X: ..."
+# into plain prose ("X has a round face, ..."), so match on content, not only the label — but
+# these go to every family member's session, so a passing mention ("broke his glasses") must not.
+_APPEARANCE_LABEL = re.compile(r"^\s*(visual id|physical description)\b", re.I)
+_APPEARANCE_WORD = re.compile(r"\b(face|skin|eyes|hair|beard|moustache|mustache|glasses|freckles|build)\b", re.I)
+
+
+def _is_appearance(memory: dict) -> bool:
+    """Return True for a labelled Visual ID, or a description naming three or more appearance features."""
+    fact = memory.get("fact") or ""
+    if _is_episode(memory):
+        return False
+    return bool(_APPEARANCE_LABEL.match(fact)) or len({w.lower() for w in _APPEARANCE_WORD.findall(fact)}) >= 3
+
+
+EPISODE_DAYS = 14.0  # conversation summaries from this many days are shown at session start
+EPISODE_MAX = 6
+EPISODE_MODEL = os.getenv("REACHY_MINI_EPISODE_MODEL", "gemini-3.8-flash")
+
+
+def _is_episode(memory: dict) -> bool:
+    return ((memory.get("metadata") or {}).get("kind") or {}).get("stringValue") == "episode"
+
+
+def _part_of_day(dt: datetime) -> str:
+    return "morning" if dt.hour < 12 else "afternoon" if dt.hour < 17 else "evening" if dt.hour < 22 else "night"
+
+
+def _age_days_of(memory: dict) -> float | None:
+    """Days since what a memory describes happened: its event time, else when it was created."""
+    event = ((memory.get("metadata") or {}).get("event_time") or {}).get("timestampValue")
+    ts = event or memory.get("createTime") or memory.get("updateTime")
+    if not ts:
+        return None
+    try:
+        created = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return max(0.0, (datetime.now(timezone.utc) - created).total_seconds() / 86400.0)
+
+
+def _ago(age_days: float | None) -> str:
+    """Relative age, e.g. "14 hours ago", "3 days ago", "5 months ago" (no timezone needed)."""
+    if age_days is None:
+        return "date unknown"
+    if age_days < 1:
+        hours = max(1, round(age_days * 24))
+        if hours < 24:
+            return f"{hours} hour{'s' if hours != 1 else ''} ago"
+    # Days up to two weeks, then weeks, months, years.
+    for unit, size, start in (("year", 365.0, 365.0), ("month", 30.0, 30.0), ("week", 7.0, 14.0), ("day", 1.0, 1.0)):
+        if age_days >= start:
+            n = int(age_days // size)
+            return f"{n} {unit}{'s' if n != 1 else ''} ago"
+    return "1 day ago"
+
+
+def _format_dated_context(recent: list[dict], older: list[dict], faces: list[dict] | None = None) -> str:
+    """Session-start memory: the usual relevant-memories block, then what was saved recently.
+
+    One fixed similarity query surfaced the same old facts every session, undated, so the robot
+    kept bringing them up and couldn't tell last night from last spring. The relevant block is
+    kept exactly as before (the profile prompt is tuned to it — reshaping it cost identity and
+    restraint in the eval); recent conversations come after it, dated, in their own block.
+    Every known person's appearance is appended to the relevant block as a "Visual ID — Name:"
+    entry, which is what the profile prompt compares the camera photo against.
+    """
+    lines = []
+    entries = [f["fact"] for f in older]
+    for f in faces or []:
+        fact = f["fact"]
+        entries.append(fact if fact.lower().startswith("visual id") else f"Visual ID — {f['user'].title()}: {fact}")
+    if entries:
+        lines.append("<vertex_memory_bank>\nRelevant memories from prior sessions:")
+        lines += [f"{i + 1}. {e}" for i, e in enumerate(entries)]
+        lines.append("</vertex_memory_bank>")
+    if recent:
+        lines.append(
+            "<recent_conversations>\nRecent conversations and what was saved lately, newest first, "
+            "with how long ago (the memories above are older). For small talk and catching up, draw "
+            "on these rather than older memories, and never present an older memory as something "
+            "recent."
+        )
+        lines += [f"- {f['fact']} ({_ago(f.get('age_days'))})" for f in recent]
+        lines.append("</recent_conversations>")
+    return "\n".join(lines)
 
 
 class VertexMemoryBackend:
@@ -175,14 +304,18 @@ class VertexMemoryBackend:
     """
 
     def __init__(self) -> None:
+        """Read Memory Bank coordinates from the environment."""
         self.project = os.environ["GCP_PROJECT_ID"]
         self.location = os.environ.get("GCP_LOCATION", "us-central1")
         self.engine_id = os.environ["VERTEX_REASONING_ENGINE_ID"]
         self._base = f"https://{self.location}-aiplatform.googleapis.com/v1beta1"
-        self._parent = (
-            f"projects/{self.project}/locations/{self.location}"
-            f"/reasoningEngines/{self.engine_id}"
-        )
+        self._parent = f"projects/{self.project}/locations/{self.location}/reasoningEngines/{self.engine_id}"
+        # Last Memory Bank failure (None = last call succeeded). Lets the session tell
+        # the user memory is down instead of silently forgetting them.
+        self.last_error: str | None = None
+        # Last good session-start context per (profile, user), served when Memory Bank
+        # is unreachable so a blip doesn't make the robot forget who it's talking to.
+        self._context_cache: dict[tuple[str, str], str] = {}
 
     def _url(self, path: str) -> str:
         return f"{self._base}/{self._parent}/{path}"
@@ -214,20 +347,29 @@ class VertexMemoryBackend:
         try:
             resp = await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: _api("POST", self._url("memories:retrieve"), {
-                    "scope": scope,
-                    "similarity_search_params": {
-                        "search_query": query,
-                        "top_k": fetch_k,
+                lambda: _api_read(
+                    "POST",
+                    self._url("memories:retrieve"),
+                    {
+                        "scope": scope,
+                        "similarity_search_params": {
+                            "search_query": query,
+                            "top_k": fetch_k,
+                        },
                     },
-                }),
+                ),
             )
         except Exception as exc:
             logger.warning(
                 "Memory: retrieve failed (user=%r profile=%r query=%r): %s",
-                scope["user_id"], profile, query[:60], exc,
+                scope["user_id"],
+                profile,
+                query[:60],
+                exc,
             )
+            self.last_error = str(exc)
             return []
+        self.last_error = None
 
         all_memories = resp.get("retrievedMemories", [])
         cutoff = max_distance if max_distance is not None else MAX_DISTANCE
@@ -235,7 +377,8 @@ class VertexMemoryBackend:
         if len(kept) < len(all_memories):
             logger.info(
                 "Memory: filtered %d low-quality results (maxDistance=%.1f)",
-                len(all_memories) - len(kept), MAX_DISTANCE,
+                len(all_memories) - len(kept),
+                MAX_DISTANCE,
             )
         if not kept:
             return []
@@ -255,7 +398,9 @@ class VertexMemoryBackend:
             age_days: float | None = None
             if ts:
                 try:
-                    age_days = round((now - datetime.fromisoformat(ts.replace("Z", "+00:00"))).total_seconds() / 86400.0, 1)
+                    age_days = round(
+                        (now - datetime.fromisoformat(ts.replace("Z", "+00:00"))).total_seconds() / 86400.0, 1
+                    )
                 except Exception:
                     pass
             out.append({"memory_id": name, "fact": fact, "age_days": age_days})
@@ -286,15 +431,64 @@ class VertexMemoryBackend:
         return sorted(memories, key=_score, reverse=True)
 
     async def load_context(self, profile: str, user_id: str | None = None) -> str:
-        """Retrieve relevant memories at session start and format as bullet list for system prompt injection."""
-        facts = await self._retrieve(profile, MEMORY_SEARCH_QUERY, user_id=user_id)
+        """Recent memories (by date) plus the most relevant older ones, formatted for the system prompt."""
         scope_user = user_id or get_active_user()
-        if not facts:
+        relevant, listed = await asyncio.gather(
+            self._retrieve(profile, MEMORY_SEARCH_QUERY, user_id=user_id, top_k=OLDER_MAX + RECENT_MAX, with_ids=True),
+            self.list_memories(profile, profile_wide=True),
+        )
+        key = (profile, scope_user)
+        if self.last_error is not None and key in self._context_cache:
+            logger.warning("Memory: retrieve failed, using cached context (user=%r profile=%r)", scope_user, profile)
+            self.last_error = None
+            return self._context_cache[key]
+        faces = [
+            {"memory_id": m["name"], "fact": m["fact"], "user": m.get("scope", {}).get("user_id") or "?"}
+            for m in listed
+            if m.get("fact") and m.get("name") and _is_appearance(m)
+        ]
+        faces.sort(key=lambda f: (f["user"] != scope_user, f["user"]))  # the active user first
+        face_ids = {f["memory_id"] for f in faces}
+        recent, episodes, episode_ids = [], [], set()
+        for m in listed:
+            age = _age_days_of(m)
+            if m.get("scope", {}).get("user_id") != scope_user or m.get("name") in face_ids:
+                continue
+            if not (m.get("fact") and m.get("name")) or age is None:
+                continue
+            entry = {"memory_id": m["name"], "fact": m["fact"], "age_days": age}
+            if _is_episode(m):
+                episode_ids.add(m["name"])
+                if age < EPISODE_DAYS:
+                    episodes.append(entry)
+            elif age < RECENT_DAYS:
+                recent.append(entry)
+        # Past conversations (dated summaries) and freshly saved facts, newest first.
+        episodes.sort(key=lambda f: f["age_days"])
+        recent.sort(key=lambda f: f["age_days"])
+        recent = sorted(episodes[:EPISODE_MAX] + recent[:RECENT_MAX], key=lambda f: f["age_days"])
+        seen = {f["memory_id"] for f in recent} | episode_ids
+        older = [
+            f
+            for f in relevant
+            if f["memory_id"] not in seen | face_ids and (f.get("age_days") is None or f["age_days"] >= RECENT_DAYS)
+        ][:OLDER_MAX]
+        if not recent and not older and not faces:
             logger.info("Memory: no stored memories for user=%r profile=%r", scope_user, profile)
-            return ""
-        logger.info("Memory: injecting %d facts (user=%r profile=%r)", len(facts), scope_user, profile)
-        numbered = "\n".join(f"{i+1}. {f}" for i, f in enumerate(facts))
-        return f"<vertex_memory_bank>\nRelevant memories from prior sessions:\n{numbered}\n</vertex_memory_bank>"
+            context = ""
+        else:
+            logger.info(
+                "Memory: injecting %d recent + %d older facts + %d visual IDs (user=%r profile=%r)",
+                len(recent),
+                len(older),
+                len(faces),
+                scope_user,
+                profile,
+            )
+            context = _format_dated_context(recent, older, faces)
+        if self.last_error is None:
+            self._context_cache[key] = context
+        return context
 
     async def search(
         self,
@@ -312,7 +506,9 @@ class VertexMemoryBackend:
         plain strings — used by the `forget` tool to delete specific entries.
         """
         results = await self._retrieve(
-            profile, query, user_id=user_id,
+            profile,
+            query,
+            user_id=user_id,
             fetch_k=max(top_k * 2, 20),
             top_k=top_k,
             with_ids=with_ids,
@@ -320,7 +516,10 @@ class VertexMemoryBackend:
         scope_user = user_id or get_active_user()
         logger.info(
             "Memory: search returned %d facts (user=%r profile=%r query=%r)",
-            len(results), scope_user, profile, query[:80],
+            len(results),
+            scope_user,
+            profile,
+            query[:80],
         )
         return results
 
@@ -345,41 +544,107 @@ class VertexMemoryBackend:
             return False
         return True
 
-    async def save_session(self, profile: str, transcript: list[dict], user_id: str | None = None) -> None:
-        """Ingest transcript into Memory Bank at session close.
+    async def save_session(self, profile: str, transcript: list[dict], user_id: str | None = None) -> str:
+        """Ingest transcript into Memory Bank at session close. Returns "saved", "skipped" or "failed".
 
         Sends the full meaningful conversation (noise-filtered) for extraction.
         OpenClaw sends only the last pair per turn; we send the full session since
         Gemini Live is a continuous voice session, not a turn-by-turn chat.
         """
         if not transcript:
-            return
+            return "skipped"
         meaningful = [t for t in transcript if self._is_meaningful_turn(t)]
 
         # Apply OpenClaw total-length noise filter
         user_turns = [t for t in meaningful if t.get("role") == "user"]
-        assistant_turns = [t for t in meaningful if t.get("role") != "user"]
         user_len = sum(len(t.get("content", "")) for t in user_turns)
         total_len = sum(len(t.get("content", "")) for t in meaningful)
         if user_len < 20 or total_len < 100:
             logger.info("Memory: skipped — too short (user=%d, total=%d)", user_len, total_len)
-            return
+            return "skipped"
 
         # Truncate each turn to 4000 chars (OpenClaw pattern)
-        events = [
-            {"content": {"role": t["role"], "parts": [{"text": t["content"][:4000]}]}}
-            for t in meaningful
-        ]
-        logger.info("Memory: sending %d/%d turns to extraction (user=%d chars, total=%d chars)",
-                    len(events), len(transcript), user_len, total_len)
-        scope = self._scope(profile, user_id)
-        await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: self._generate_memories(scope, {
-                "direct_contents_source": {"events": events},
-                "revision_labels": {"source": "session"},
-            }),
+        events = [{"content": {"role": t["role"], "parts": [{"text": t["content"][:4000]}]}} for t in meaningful]
+        logger.info(
+            "Memory: sending %d/%d turns to extraction (user=%d chars, total=%d chars)",
+            len(events),
+            len(transcript),
+            user_len,
+            total_len,
         )
+        scope = self._scope(profile, user_id)
+        ok = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: self._generate_memories(
+                scope,
+                {
+                    "direct_contents_source": {"events": events},
+                    "revision_labels": {"source": "session"},
+                },
+            ),
+        )
+        return "saved" if ok else "failed"
+
+    async def save_episode(self, profile: str, transcript: list[dict], user_id: str | None = None) -> str:
+        """Store a one-line, dated summary of a finished conversation, verbatim.
+
+        Extracted facts lose their dates (consolidation rewrites them), so each conversation also
+        gets its own record — "Conversation on Thursday October 29, 2026, evening: ..." with an
+        event_time — created directly so consolidation can't merge it away.
+        """
+        meaningful = [t for t in transcript if self._is_meaningful_turn(t)]
+        if sum(len(t.get("content", "")) for t in meaningful if t.get("role") == "user") < 40:
+            return "skipped"
+        user = user_id or get_active_user()  # resolved once: the active user may change while we summarise
+        who = user.title()
+        lines = [f"{'Robot' if t['role'] != 'user' else who}: {t['content']}" for t in meaningful]
+        while len(lines) > 1 and sum(len(x) + 1 for x in lines) > 12000:
+            lines.pop(0)  # keep whole turns, newest last
+        dialogue = "\n".join(lines)[-12000:]
+        from reachy_mini_gemini_live.location import local_now
+
+        now = local_now()
+        prompt = (
+            f"Here is a conversation between {who} and their home robot on {now:%A %B %-d, %Y}.\n\n"
+            f"{dialogue}\n\n"
+            f"In one or two short sentences, say what {who} talked about: happenings, plans, news, "
+            "feelings, requests. Skip greetings and small talk about the robot itself. Write in the "
+            f"third person ({who} ...). Turn relative dates into calendar dates using the date above. "
+            f"Only record what {who} said in their own words. The robot's lines are context only: "
+            f"never record something because the robot said or recalled it, and if {who} corrected "
+            "the robot, keep the correction, not the mistake. "
+            "If nothing worth remembering was said, reply NONE."
+        )
+        try:
+            from google import genai as _genai
+
+            client = _genai.Client(api_key=os.environ.get("GEMINI_API_KEY", "").strip())
+            resp = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: client.models.generate_content(model=EPISODE_MODEL, contents=prompt)
+            )
+            summary = " ".join((resp.text or "").split())
+        except Exception as exc:
+            logger.warning("Memory: conversation summary failed: %s", exc)
+            return "failed"
+        if not summary or summary.upper().startswith("NONE"):
+            return "skipped"
+        body = {
+            "fact": f"Conversation on {now:%A %B %-d, %Y}, {_part_of_day(now)}: {summary}",
+            "scope": self._scope(profile, user),
+            "metadata": {
+                "event_time": {"timestampValue": now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")},
+                "kind": {"stringValue": "episode"},
+            },
+        }
+        try:
+            await asyncio.get_event_loop().run_in_executor(
+                None, lambda: _api("POST", f"{self._base}/{self._parent}/memories", body, timeout=GENERATE_TIMEOUT_S)
+            )
+        except Exception as exc:
+            logger.warning("Memory: conversation record not saved: %s", exc)
+            return "failed"
+        logger.info("Memory: saved conversation record (user=%r profile=%r)", who, profile)
+        return "saved"
 
     async def remember(
         self,
@@ -387,8 +652,8 @@ class VertexMemoryBackend:
         fact: str,
         user_id: str | None = None,
         lifetime_days: int | None = None,
-    ) -> None:
-        """Store an explicit fact. Awaited so the call completes.
+    ) -> bool:
+        """Store an explicit fact. Awaited so the call completes. True on success.
 
         If lifetime_days is set, the memory is tagged with a `ttl_until` label
         (UTC ISO date). The session-start sweep deletes any memory whose
@@ -401,12 +666,15 @@ class VertexMemoryBackend:
             ttl_until = (datetime.now(timezone.utc) + _td(days=lifetime_days)).strftime("%Y-%m-%d")
             labels["ttl_until"] = ttl_until
             labels["ephemeral"] = "true"
-        await asyncio.get_event_loop().run_in_executor(
+        return await asyncio.get_event_loop().run_in_executor(
             None,
-            lambda: self._generate_memories(scope, {
-                "direct_memories_source": {"direct_memories": [{"fact": fact}]},
-                "revision_labels": labels,
-            }),
+            lambda: self._generate_memories(
+                scope,
+                {
+                    "direct_memories_source": {"direct_memories": [{"fact": fact}]},
+                    "revision_labels": labels,
+                },
+            ),
         )
 
     # ── Hygiene primitives ─────────────────────────────────────────────────
@@ -418,8 +686,9 @@ class VertexMemoryBackend:
         page_size: int = 100,
         profile_wide: bool = False,
     ) -> list[dict]:
-        """Return memories for a scope (paginated). Each entry has name,
-        fact, createTime, updateTime, scope, and optional revision labels.
+        """Return memories for a scope (paginated).
+
+        Each entry has name, fact, createTime, updateTime, scope, and optional revision labels.
 
         profile_wide=True searches all users in the profile — useful for
         keyword search where a family fact may be stored under a different
@@ -439,7 +708,8 @@ class VertexMemoryBackend:
                 params += f"&pageToken={urllib.parse.quote(page_token)}"
             try:
                 resp = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda p=params: _api("GET", f"{self._base}/{self._parent}/memories{p}", None),
+                    None,
+                    lambda p=params: _api_read("GET", f"{self._base}/{self._parent}/memories{p}", None),
                 )
             except Exception as exc:
                 logger.warning("Memory: list failed (scope=%r): %s", scope, exc)
@@ -454,7 +724,8 @@ class VertexMemoryBackend:
         """Delete a single memory by its full resource name. Returns True on success."""
         try:
             await asyncio.get_event_loop().run_in_executor(
-                None, lambda: _api("DELETE", f"{self._base}/{memory_name}", None),
+                None,
+                lambda: _api("DELETE", f"{self._base}/{memory_name}", None),
             )
             return True
         except Exception as exc:
@@ -473,7 +744,7 @@ class VertexMemoryBackend:
         expired = []
         for m in items:
             # Latest revision's labels carry the ttl_until tag (set at remember time)
-            labels = (m.get("revisionLabels") or {})
+            labels = m.get("revisionLabels") or {}
             ttl_until = labels.get("ttl_until")
             if ttl_until and ttl_until < today:
                 expired.append(m)
@@ -487,7 +758,9 @@ class VertexMemoryBackend:
         scope_user = user_id or get_active_user()
         logger.info(
             "Memory: purged %d expired memories (user=%r profile=%r)",
-            deleted, scope_user, profile,
+            deleted,
+            scope_user,
+            profile,
         )
         return deleted
 
@@ -530,7 +803,9 @@ class VertexMemoryBackend:
             scope_user = user_id or get_active_user()
             logger.info(
                 "Memory: compact applied %d items from supplied plan (user=%r profile=%r)",
-                applied, scope_user, profile,
+                applied,
+                scope_user,
+                profile,
             )
             return {
                 "dry_run": False,
@@ -558,9 +833,7 @@ class VertexMemoryBackend:
         prompt = (
             f"You are reviewing {len(items)} stored memories for user '{scope_user}'.\n"
             "Identify cleanup opportunities. Return STRICT JSON only — no prose, no markdown.\n\n"
-            "MEMORIES:\n"
-            + "\n".join(memory_lines)
-            + "\n\n"
+            "MEMORIES:\n" + "\n".join(memory_lines) + "\n\n"
             "Return this exact shape:\n"
             "{\n"
             '  "summary": "<one-sentence overall assessment>",\n'
@@ -576,18 +849,20 @@ class VertexMemoryBackend:
             "- 'merge' deletes the listed and creates a single combined fact.\n"
             "- Index numbers must come from the [N] markers above. Do not invent.\n"
             f"- Total deletions across all actions must not exceed {max_actions}.\n"
-            "- If nothing needs cleanup, return {\"summary\":\"clean\",\"actions\":[]}.\n"
+            '- If nothing needs cleanup, return {"summary":"clean","actions":[]}.\n'
         )
 
         # Call Gemini for triage
         from google import genai as _genai
+
         api_key = os.environ.get("GEMINI_API_KEY", "").strip()
         if not api_key:
             return {"error": "GEMINI_API_KEY not set", "analyzed": len(items), "applied": 0}
         try:
             client = _genai.Client(api_key=api_key)
-            model_name = "gemini-3.1-pro-preview"
+            model_name = "gemini-4-argon"
             from google.genai import types as _genai_types
+
             resp = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: client.models.generate_content(
@@ -623,13 +898,15 @@ class VertexMemoryBackend:
                 if isinstance(i, int) and 0 <= i < len(items):
                     facts.append(items[i].get("fact", "")[:160])
                     ids.append(items[i].get("name"))
-            annotated.append({
-                "type": a.get("type"),
-                "reason": a.get("reason", ""),
-                "facts": facts,
-                "memory_ids": ids,
-                "new_fact": a.get("new_fact"),
-            })
+            annotated.append(
+                {
+                    "type": a.get("type"),
+                    "reason": a.get("reason", ""),
+                    "facts": facts,
+                    "memory_ids": ids,
+                    "new_fact": a.get("new_fact"),
+                }
+            )
 
         if dry_run:
             return {
@@ -655,7 +932,10 @@ class VertexMemoryBackend:
 
         logger.info(
             "Memory: compact applied %d/%d action-items (user=%r profile=%r)",
-            applied, sum(len(a.get("memory_ids") or []) for a in annotated), scope_user, profile,
+            applied,
+            sum(len(a.get("memory_ids") or []) for a in annotated),
+            scope_user,
+            profile,
         )
         return {
             "dry_run": False,
@@ -666,21 +946,36 @@ class VertexMemoryBackend:
             "model": model_name,
         }
 
-    def _generate_memories(self, scope: dict, source: dict) -> None:
+    def _generate_memories(self, scope: dict, source: dict) -> bool:
         try:
-            resp = _api("POST", self._url("memories:generate"), {
-                "scope": scope,
-                **source,
-            })
+            resp = _api(
+                "POST",
+                self._url("memories:generate"),
+                {
+                    "scope": scope,
+                    **source,
+                },
+                timeout=GENERATE_TIMEOUT_S,
+            )
             op = resp.get("name", "?").split("/")[-1]
-            logger.info("Memory: generate LRO started (op=%s, user=%r profile=%r)",
-                        op, scope.get("user_id"), scope.get("profile"))
+            logger.info(
+                "Memory: generate LRO started (op=%s, user=%r profile=%r)",
+                op,
+                scope.get("user_id"),
+                scope.get("profile"),
+            )
         except Exception as exc:
-            logger.warning("Memory: generate failed (user=%r profile=%r): %s",
-                           scope.get("user_id"), scope.get("profile"), exc)
+            logger.warning(
+                "Memory: generate failed (user=%r profile=%r): %s", scope.get("user_id"), scope.get("profile"), exc
+            )
+            self.last_error = str(exc)
+            return False
+        self.last_error = None
+        return True
 
 
 # ── File-based fallback ───────────────────────────────────────────────────────
+
 
 class FileMemoryBackend:
     """Local Markdown file memory for development without GCP.
@@ -691,7 +986,9 @@ class FileMemoryBackend:
     """
 
     def __init__(self, base_dir: Path = _DEFAULT_MEMORY_DIR) -> None:
+        """Store memory files under base_dir."""
         self._base = base_dir
+        self.last_error: str | None = None
 
     def _profile_dir(self, profile: str, user_id: str | None = None) -> Path:
         u = user_id or get_active_user()
@@ -700,6 +997,7 @@ class FileMemoryBackend:
         return d
 
     async def load_context(self, profile: str, user_id: str | None = None) -> str:
+        """Return MEMORY.md and last.md contents for injection at session start."""
         parts: list[str] = []
         d = self._profile_dir(profile, user_id)
         for fname in ("MEMORY.md", "last.md"):
@@ -710,15 +1008,20 @@ class FileMemoryBackend:
                     parts.append(text)
         return "\n\n".join(parts)
 
-    async def search(self, profile: str, query: str, user_id: str | None = None, top_k: int = 10, with_ids: bool = False) -> list:
+    async def search(
+        self, profile: str, query: str, user_id: str | None = None, top_k: int = 10, with_ids: bool = False
+    ) -> list:
         """Naive substring search over the file-backed MEMORY.md as a dev fallback."""
         d = self._profile_dir(profile, user_id)
         f = d / "MEMORY.md"
         if not f.exists():
             return []
         q = query.lower()
-        hits = [line.strip().lstrip("- ") for line in f.read_text(encoding="utf-8").splitlines()
-                if line.strip() and q in line.lower()]
+        hits = [
+            line.strip().lstrip("- ")
+            for line in f.read_text(encoding="utf-8").splitlines()
+            if line.strip() and q in line.lower()
+        ]
         results = hits[:top_k]
         if with_ids:
             # File backend has no real IDs — fabricate from line position so forget can work
@@ -726,21 +1029,37 @@ class FileMemoryBackend:
         return results
 
     async def list_memories(self, profile: str, user_id: str | None = None, page_size: int = 100) -> list[dict]:
+        """Return no entries (the file backend has no listable store)."""
         return []
 
     async def delete_memory(self, memory_name: str) -> bool:
+        """Do nothing (the file backend can't delete individual memories)."""
         logger.info("FileMemoryBackend: delete_memory is a no-op (file backend)")
         return False
 
     async def purge_expired(self, profile: str, user_id: str | None = None) -> int:
+        """Return 0 (the file backend has no TTL sweep)."""
         return 0
 
-    async def compact_memories(self, profile: str, user_id: str | None = None, dry_run: bool = True, max_actions: int = 25) -> dict:
-        return {"analyzed": 0, "proposed": [], "applied": 0, "summary": "FileMemoryBackend does not support compaction"}
+    async def compact_memories(
+        self, profile: str, user_id: str | None = None, dry_run: bool = True, max_actions: int = 25
+    ) -> dict:
+        """Return an empty plan (the file backend doesn't support compaction)."""
+        return {
+            "analyzed": 0,
+            "proposed": [],
+            "applied": 0,
+            "summary": "FileMemoryBackend does not support compaction",
+        }
 
-    async def save_session(self, profile: str, transcript: list[dict], user_id: str | None = None) -> None:
+    async def save_episode(self, profile: str, transcript: list[dict], user_id: str | None = None) -> str:
+        """Conversation records need Memory Bank; the file backend keeps its last.md summary instead."""
+        return "skipped"
+
+    async def save_session(self, profile: str, transcript: list[dict], user_id: str | None = None) -> str:
+        """Write the session transcript to last.md. Returns "saved" or "skipped"."""
         if not transcript:
-            return
+            return "skipped"
         d = self._profile_dir(profile, user_id)
         lines = [f"## Session — {date.today().isoformat()}"]
         for t in transcript:
@@ -749,8 +1068,12 @@ class FileMemoryBackend:
             if content:
                 lines.append(f"**{role}:** {content}")
         (d / "last.md").write_text("\n\n".join(lines) + "\n", encoding="utf-8")
+        return "saved"
 
-    async def remember(self, profile: str, fact: str, user_id: str | None = None, lifetime_days: int | None = None) -> None:
+    async def remember(
+        self, profile: str, fact: str, user_id: str | None = None, lifetime_days: int | None = None
+    ) -> bool:
+        """Append a fact to MEMORY.md (deduplicated). Returns True."""
         d = self._profile_dir(profile, user_id)
         memory_file = d / "MEMORY.md"
         existing = memory_file.read_text(encoding="utf-8") if memory_file.exists() else ""
@@ -762,9 +1085,11 @@ class FileMemoryBackend:
                 if not existing:
                     f.write("## What I remember\n")
                 f.write(f"- {fact}{suffix}\n")
+        return True
 
 
 # ── Factory ───────────────────────────────────────────────────────────────────
+
 
 def create_memory_backend() -> MemoryBackend:
     """Return VertexMemoryBackend if GCP env vars are set, else FileMemoryBackend."""
@@ -773,7 +1098,8 @@ def create_memory_backend() -> MemoryBackend:
             backend = VertexMemoryBackend()
             logger.info(
                 "Memory: Vertex AI Memory Bank (project=%s, engine=%s)",
-                backend.project, backend.engine_id,
+                backend.project,
+                backend.engine_id,
             )
             return backend
         except Exception as exc:

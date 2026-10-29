@@ -12,7 +12,9 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
+
 from mcp.server.fastmcp import FastMCP
+
 
 mcp = FastMCP("weather")
 
@@ -26,6 +28,7 @@ def get_current_weather(location: str) -> str:
 
     Args:
         location: City name, zip code, or 'City,State' (e.g. 'Springfield,IL' or '62701')
+
     """
     try:
         url = f"https://wttr.in/{urllib.parse.quote(location)}?format=j1"

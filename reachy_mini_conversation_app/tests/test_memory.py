@@ -1,13 +1,12 @@
 """Tests for the memory system — FileMemoryBackend and MemoryBackend protocol."""
 
-import asyncio
 from pathlib import Path
 
 import pytest
 
 from reachy_mini_gemini_live.memory import (
-    FileMemoryBackend,
     MemoryBackend,
+    FileMemoryBackend,
     VertexMemoryBackend,
     create_memory_backend,
 )
@@ -89,9 +88,12 @@ async def test_profiles_are_isolated(mem: FileMemoryBackend, tmp_path: Path) -> 
 @pytest.mark.asyncio
 async def test_load_context_combines_memory_and_last(mem: FileMemoryBackend, tmp_path: Path) -> None:
     await mem.remember("default", "Durable fact.")
-    await mem.save_session("default", [
-        {"role": "user", "content": "We discussed the project."},
-    ])
+    await mem.save_session(
+        "default",
+        [
+            {"role": "user", "content": "We discussed the project."},
+        ],
+    )
     ctx = await mem.load_context("default")
     assert "Durable fact." in ctx
     assert "We discussed the project." in ctx
@@ -136,6 +138,7 @@ async def test_users_are_isolated(mem: FileMemoryBackend) -> None:
 
 def test_set_and_get_active_user(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from reachy_mini_gemini_live import memory as mem_mod
+
     monkeypatch.setattr(mem_mod, "_ACTIVE_USER_FILE", tmp_path / "active_user.json")
     assert mem_mod.get_active_user() == "unknown"
     mem_mod.set_active_user("Nick")

@@ -17,7 +17,7 @@ from reachy_mini_gemini_live.config import (
     get_default_voice_for_backend,
     get_available_voices_for_backend,
 )
-from reachy_mini_gemini_live.voices import validate_voice, SUPPORTED_GEMINI_VOICES
+from reachy_mini_gemini_live.voices import SUPPORTED_GEMINI_VOICES, validate_voice
 
 
 class PersonalityUI:
@@ -170,6 +170,7 @@ class PersonalityUI:
                         return validate_voice(v) if v else default_voice
                     except ValueError as exc:
                         import logging as _logging
+
                         _logging.getLogger(__name__).warning("Profile %r: %s", name, exc)
                         return default_voice
             except Exception:

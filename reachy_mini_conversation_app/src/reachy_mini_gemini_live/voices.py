@@ -1,6 +1,6 @@
 """Gemini Live voice constants and validation."""
 
-from reachy_mini_gemini_live.config import AVAILABLE_VOICES, DEFAULT_VOICE
+from reachy_mini_gemini_live.config import DEFAULT_VOICE, AVAILABLE_VOICES
 
 
 SUPPORTED_GEMINI_VOICES: set[str] = set(AVAILABLE_VOICES)
@@ -14,9 +14,7 @@ def validate_voice(name: str) -> str:
     normalised = {v.lower(): v for v in SUPPORTED_GEMINI_VOICES}
     canonical = normalised.get((name or "").strip().lower())
     if canonical is None:
-        raise ValueError(
-            f"Unknown voice {name!r}. Valid voices: {sorted(SUPPORTED_GEMINI_VOICES)}"
-        )
+        raise ValueError(f"Unknown voice {name!r}. Valid voices: {sorted(SUPPORTED_GEMINI_VOICES)}")
     return canonical
 
 
