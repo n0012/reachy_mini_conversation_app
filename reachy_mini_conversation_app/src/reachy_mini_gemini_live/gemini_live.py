@@ -142,6 +142,17 @@ def _is_placeholder(text: str) -> bool:
     return not any(c.isalnum() for c in _PLACEHOLDER_MARKUP_RE.sub("", text))
 
 
+def _request_app_restart() -> None:
+    """Ask the daemon's launcher to restart this app (blocking)."""
+    try:
+        import urllib.request as _ur
+
+        req = _ur.Request("http://localhost:8000/api/apps/restart-current-app", data=b"", method="POST")
+        _ur.urlopen(req, timeout=1)
+    except Exception:
+        pass  # expected — launcher kills us before responding
+
+
 def _env_flag(name: str, default: bool) -> bool:
     """Read a boolean env var ("1/true/yes/on" or "0/false/no/off")."""
     value = os.environ.get(name, "").strip().lower()
@@ -496,6 +507,9 @@ class GeminiLiveHandler(AsyncStreamHandler):
                 )
             except Exception as e:
                 logger.debug("sleep pose error: %s", e)
+        deep_sleep = getattr(self.deps, "deep_sleep", None)
+        if deep_sleep is not None and self._sleeping:
+            await asyncio.get_event_loop().run_in_executor(None, deep_sleep.enter)
         # Start Edge Impulse wake word detection + watchdog
         self._start_ei_detection(asyncio.get_event_loop())
         asyncio.create_task(self._ei_watchdog(asyncio.get_event_loop()), name="ei-watchdog")
@@ -535,6 +549,11 @@ class GeminiLiveHandler(AsyncStreamHandler):
             set_custom_profile(profile)
             self.deps.active_profile = profile
         self._sleeping = False
+        deep_sleep = getattr(self.deps, "deep_sleep", None)
+        if deep_sleep is not None and not await asyncio.get_event_loop().run_in_executor(None, deep_sleep.exit):
+            logger.error("Media did not come back after deep sleep — requesting app restart via launcher")
+            await asyncio.get_event_loop().run_in_executor(None, _request_app_restart)
+            return
         robot = getattr(self.deps, "reachy_mini", None)
         if robot is not None:
             # Movement output is still paused from sleep(), so the wake move owns the motors.
@@ -552,18 +571,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
             return
         # Profile tools are registered at import, so a different profile needs a fresh process.
         logger.info("Profile switch on wake — requesting app restart via launcher")
-
-        def _do_restart():
-            try:
-                import socket as _socket
-                import urllib.request as _ur
-
-                req = _ur.Request("http://localhost:8000/api/apps/restart-current-app", data=b"", method="POST")
-                _ur.urlopen(req, timeout=1)
-            except (_socket.timeout, Exception):
-                pass  # expected — launcher kills us before responding
-
-        await asyncio.get_event_loop().run_in_executor(None, _do_restart)
+        await asyncio.get_event_loop().run_in_executor(None, _request_app_restart)
         await self.output_queue.put(AdditionalOutputs({"role": "memory", "content": "▶ awake"}))
 
     async def _false_wake_guard(self) -> None:

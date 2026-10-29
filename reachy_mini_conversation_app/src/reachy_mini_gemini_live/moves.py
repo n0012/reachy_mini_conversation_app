@@ -56,6 +56,7 @@ logger = logging.getLogger(__name__)
 
 # Configuration constants
 CONTROL_LOOP_FREQUENCY_HZ = 60.0  # Hz - Target frequency for the movement control loop
+PAUSED_PERIOD_S = 0.1  # loop period while output is paused (asleep): nothing is sent, so tick slowly
 
 # Type definitions
 FullBodyPose = Tuple[NDArray[np.float32], Tuple[float, float], float]  # (head_pose_4x4, antennas, body_yaw)
@@ -700,7 +701,9 @@ class MovementManager:
         """Compute sleep time to maintain target frequency and update potential freq."""
         computation_time = self._now() - loop_start
         stats.potential_freq = 1.0 / computation_time if computation_time > 0 else float("inf")
-        sleep_time = max(0.0, self.target_period - computation_time)
+        # While output is paused (asleep) nothing is sent, so tick slowly.
+        period = PAUSED_PERIOD_S if self._output_paused.is_set() else self.target_period
+        sleep_time = max(0.0, period - computation_time)
         return sleep_time, stats
 
     def _record_frequency_snapshot(self, stats: LoopFrequencyStats) -> None:

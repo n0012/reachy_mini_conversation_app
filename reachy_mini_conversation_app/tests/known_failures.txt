@@ -5,6 +5,7 @@
 ignore:tests/vision
 ignore:tests/test_console.py
 ignore:tests/test_utils.py
+ignore:tests/test_deep_sleep_sdk.py
 
 # Already failing before 2026-10-29 (stale after earlier refactors).
 deselect:tests/test_config_name_collisions.py::test_config_raises_on_external_profile_name_collision

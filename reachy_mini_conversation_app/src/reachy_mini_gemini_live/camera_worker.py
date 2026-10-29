@@ -28,6 +28,7 @@ class CameraWorker:
         self.latest_frame: NDArray[np.uint8] | None = None
         self.frame_lock = threading.Lock()
         self._stop_event = threading.Event()
+        self._paused = threading.Event()  # deep sleep: media is released, don't poll it
         self._thread: threading.Thread | None = None
 
         self.is_head_tracking_enabled = True
@@ -87,6 +88,14 @@ class CameraWorker:
 
         logger.debug("Camera worker stopped")
 
+    def pause(self) -> None:
+        """Stop reading frames (media is about to be released)."""
+        self._paused.set()
+
+    def resume(self) -> None:
+        """Start reading frames again."""
+        self._paused.clear()
+
     def working_loop(self) -> None:
         """Run the camera worker loop."""
         logger.debug("Starting camera working loop")
@@ -95,6 +104,9 @@ class CameraWorker:
         self.previous_head_tracking_state = self.is_head_tracking_enabled
 
         while not self._stop_event.is_set():
+            if self._paused.is_set():
+                time.sleep(0.2)
+                continue
             try:
                 current_time = time.time()
                 frame = self.reachy_mini.media.get_frame()

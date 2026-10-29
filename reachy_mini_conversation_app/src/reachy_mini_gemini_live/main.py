@@ -129,6 +129,10 @@ def run(
             logger.error("Please check your configuration and try again.")
             sys.exit(1)
 
+    from reachy_mini_gemini_live.deep_sleep import DeepSleep, recover_released_media
+
+    recover_released_media(robot)
+
     # Auto-enable Gradio in simulation mode (both MuJoCo for daemon and mockup-sim for desktop app)
     status = robot.client.get_status()
     if isinstance(status, dict):
@@ -158,6 +162,8 @@ def run(
         logger.error("Failed to initialize camera/vision: %s", e)
         sys.exit(1)
 
+    deep_sleep = DeepSleep(robot, camera_worker)
+
     movement_manager = MovementManager(
         current_robot=robot,
         camera_worker=camera_worker,
@@ -171,6 +177,7 @@ def run(
         camera_worker=camera_worker,
         vision_processor=vision_processor,
         head_wobbler=head_wobbler,
+        deep_sleep=deep_sleep,
     )
     current_file_path = os.path.dirname(os.path.abspath(__file__))
     logger.debug(f"Current file absolute path: {current_file_path}")
@@ -268,6 +275,7 @@ def run(
         if camera_worker:
             camera_worker.stop()
 
+        deep_sleep.restore()
         # Ensure media is explicitly closed before disconnecting
         try:
             robot.media.close()

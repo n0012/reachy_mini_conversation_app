@@ -972,12 +972,19 @@ class LocalStream:
                 audio.clear_player()
         self.handler.output_queue = asyncio.Queue()
 
+    def _media_paused(self) -> bool:
+        deep_sleep = getattr(self.handler.deps, "deep_sleep", None)
+        return deep_sleep is not None and deep_sleep.media_paused.is_set()
+
     async def record_loop(self) -> None:
         """Read mic frames from the recorder and forward them to the handler."""
         input_sample_rate = self._robot.media.get_input_audio_samplerate()
         logger.debug(f"Audio recording started at {input_sample_rate} Hz")
 
         while not self._stop_event.is_set():
+            if self._media_paused():
+                await asyncio.sleep(0.1)
+                continue
             audio_frame = self._robot.media.get_audio_sample()
             if audio_frame is not None:
                 await self.handler.receive((input_sample_rate, audio_frame))
@@ -1009,6 +1016,8 @@ class LocalStream:
                             self._transcript_buffer.append(entry)
 
             elif isinstance(handler_output, tuple):
+                if self._media_paused():
+                    continue  # deep sleep: no player to push to
                 input_sample_rate, audio_data = handler_output
                 output_sample_rate = self._robot.media.get_output_audio_samplerate()
 
