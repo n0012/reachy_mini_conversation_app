@@ -125,6 +125,9 @@ if [ "$mode" = "forward" ]; then
   verdict="$EVAL_RESULTS/$sha/verdict.json"
   [ -f "$verdict" ] || die "no eval verdict for $short — run scripts/eval/run_eval.sh first"
   grep -q '"pass": true' "$verdict" || die "eval did not pass for $short — see $verdict"
+  # Chained (--against) verdicts can stack tolerances; the deployed commit must be the reference.
+  grep -q "\"baseline\": \"$current\"" "$verdict" ||
+    die "$short was not gated against the deployed $(git -C "$REPO_ROOT" rev-parse --short "$current") — run scripts/eval/gate.py --candidate $sha"
 fi
 
 # 5. Stage the committed package on the robot, back up the installed one, swap.

@@ -9,6 +9,11 @@ One change per commit, each proven against what the robot runs now:
    that exact commit, and refuses anything that isn't a descendant of the deployed commit.
    A successful deploy makes that commit the new baseline (the ratchet).
 
+A run of several changes can be evaluated as a chain — `run_eval.sh --commit <next> --against
+<previous>` — so each one is judged against the change before it. Tolerances stack along a
+chain, so deploy also requires the verdict to be against the deployed commit: re-gate the tip
+with `uv run --no-sync python scripts/eval/gate.py --candidate <tip>` (reuses its runs).
+
 `scripts/robot_deploy.sh --rollback <commit>` is the deliberate way back; `--status` and
 `--verify` show what the robot runs.
 

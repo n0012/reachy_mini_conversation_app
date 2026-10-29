@@ -166,9 +166,9 @@ def install_guards(tmp: Path, start_user: str) -> dict:
 
     real_api = memory._api
 
-    def guarded_api(method: str, url: str, body: dict | None = None) -> dict:
+    def guarded_api(method: str, url: str, body: dict | None = None, **kw) -> dict:
         if method == "GET" or (method == "POST" and url.endswith("memories:retrieve")):
-            return real_api(method, url, body)
+            return real_api(method, url, body, **kw)
         blocked["memory"].append(f"_api {method} {url.rsplit('/', 1)[-1]}")
         raise PermissionError("eval: Memory Bank writes are disabled")
 

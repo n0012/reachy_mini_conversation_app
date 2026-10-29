@@ -135,6 +135,9 @@ def main() -> int:
     ap.add_argument("--candidate", required=True)
     ap.add_argument("--baseline", action="store_true", help="record the candidate as the new baseline")
     ap.add_argument("--target", help="metric that must strictly improve")
+    ap.add_argument(
+        "--against", help="compare with this evaluated commit instead of the baseline (chained candidates)"
+    )
     args = ap.parse_args()
 
     cand = args.candidate
@@ -158,6 +161,13 @@ def main() -> int:
         base_file = EVAL_DIR / "baseline"
         base = base_file.read_text().strip() if base_file.exists() else ""
         checks: list[dict] = []
+        if args.against:
+            base = subprocess.run(
+                ["git", "rev-parse", args.against], capture_output=True, text=True, check=True
+            ).stdout.strip()
+            prior = EVAL_DIR / "results" / base / "verdict.json"
+            if not prior.exists() or not json.loads(prior.read_text()).get("pass"):
+                checks.append({"check": "comparison commit passed its gate", "ok": False, "detail": base[:8]})
         if not base or not _runs(base):
             checks.append({"check": "baseline exists", "ok": False, "detail": "run with --baseline first"})
         elif (EVAL_DIR / "results" / base / "harness_id").read_text().strip() != harness_id:

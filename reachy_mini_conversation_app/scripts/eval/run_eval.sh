@@ -5,6 +5,7 @@
 #   scripts/eval/run_eval.sh --commit <sha>        eval another commit
 #   scripts/eval/run_eval.sh --baseline            eval and record this commit as the baseline
 #   scripts/eval/run_eval.sh --target <metric>     also require <metric> to improve
+#   scripts/eval/run_eval.sh --against <sha>       compare with an evaluated commit, not the baseline
 #   scripts/eval/run_eval.sh --profile-overlay D   lay profile files from D over the robot's profile
 #   scripts/eval/run_eval.sh --smoke               one run, no judge, no verdict (harness check)
 #
@@ -44,6 +45,7 @@ while [ $# -gt 0 ]; do
     --runs) runs="${2:?}"; shift ;;
     --baseline) gate_args+=(--baseline) ;;
     --target) gate_args+=(--target "${2:?}"); shift ;;
+    --against) gate_args+=(--against "${2:?}"); shift ;;
     --profile-overlay) overlay="$(cd "${2:?}" && pwd)"; shift ;;
     --smoke) smoke=1; runs=1 ;;
     -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
