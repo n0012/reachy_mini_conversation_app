@@ -56,6 +56,9 @@ _MID_SESSION_SAVE_EVERY_N_TURNS: Final[int] = 20
 # model call the camera over and over — 104 calls in a minute in one eval. The live video
 # already streams at 1 FPS, so repeat snapshots within this window are answered, not taken.
 CAMERA_COOLDOWN_S: Final[float] = 30.0
+# Pin speech and input transcription to one language so TV audio or accents don't flip the
+# reply language mid-conversation. REACHY_MINI_LANGUAGE="" leaves it to auto-detection.
+DEFAULT_LANGUAGE: Final[str] = "en-US"
 
 
 def _profile_memory_enabled(profile: str) -> bool:
@@ -672,10 +675,12 @@ class GeminiLiveHandler(AsyncStreamHandler):
         # Family/kid over-refusal is mitigated via the system prompt and the
         # canned-refusal auto-recover in _emit_transcript instead.
 
+        language = os.environ.get("REACHY_MINI_LANGUAGE", DEFAULT_LANGUAGE).strip() or None
         live_config = types.LiveConnectConfig(
             response_modalities=[types.Modality.AUDIO],
             system_instruction=types.Content(parts=[types.Part(text=instructions)]),
             speech_config=types.SpeechConfig(
+                language_code=language,
                 voice_config=types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(
                         voice_name=voice,
@@ -683,7 +688,9 @@ class GeminiLiveHandler(AsyncStreamHandler):
                 ),
             ),
             tools=tools_config,  # type: ignore[arg-type]
-            input_audio_transcription=types.AudioTranscriptionConfig(),
+            input_audio_transcription=types.AudioTranscriptionConfig(
+                language_codes=[language] if language else None,
+            ),
             output_audio_transcription=types.AudioTranscriptionConfig(),
             context_window_compression=types.ContextWindowCompressionConfig(
                 trigger_tokens=104857,
