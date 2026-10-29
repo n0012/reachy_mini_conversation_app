@@ -309,7 +309,9 @@ class GeminiLiveHandler(AsyncStreamHandler):
             else:
                 self._last_assistant_text = normalized
                 self._repeat_assistant_count = 1
-            if self._repeat_assistant_count >= 2 or normalized == CANNED_REFUSAL:
+            # One repeat (e.g. re-greeting after a silent tool result) isn't a loop, and a restart
+            # wipes the conversation — only three in a row, or the canned refusal, restart.
+            if self._repeat_assistant_count >= 3 or normalized == CANNED_REFUSAL:
                 logger.warning(
                     "Detected stuck assistant response (%dx %r) — restarting Gemini Live session",
                     self._repeat_assistant_count,

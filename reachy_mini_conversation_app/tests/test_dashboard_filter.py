@@ -71,3 +71,24 @@ async def test_turn_complete_clears_leaked_idle_flag() -> None:
     await handler._handle_turn_complete()
 
     assert handler.is_idle_tool_call is False
+
+
+@pytest.mark.asyncio
+async def test_one_repeat_keeps_the_session_three_restart_it(monkeypatch) -> None:
+    import asyncio
+
+    handler = _handler()
+    restarts = []
+
+    async def _restart() -> None:
+        restarts.append(1)
+
+    monkeypatch.setattr(handler, "_restart_session", _restart)
+    for _ in range(2):
+        await handler._flush_transcript_chunks("assistant", ["Good afternoon, Nick."])
+    await asyncio.sleep(0)
+    assert restarts == []  # a re-greeting after a tool call doesn't wipe the conversation
+
+    await handler._flush_transcript_chunks("assistant", ["Good afternoon, Nick."])
+    await asyncio.sleep(0)
+    assert restarts == [1]
