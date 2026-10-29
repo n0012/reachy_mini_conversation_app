@@ -15,6 +15,7 @@ Memory Bank REST API (no Python SDK required — uses google-auth + urllib):
 
 from __future__ import annotations
 import os
+import re
 import json
 import math
 import time
@@ -201,6 +202,9 @@ def _api_read(method: str, url: str, body: dict | None = None) -> dict:
 RECENT_DAYS = 3.0  # memories saved within this many days are "recent conversations"
 RECENT_MAX = 12  # newest recent memories shown at session start
 OLDER_MAX = DEFAULT_TOP_K  # most relevant older memories shown (who they are, family, preferences)
+# Appearance facts, for recognising people by camera. Consolidation rewrites "Visual ID — X: ..."
+# into plain prose ("X has a round face, ..."), so match on content, not only the label.
+_APPEARANCE = re.compile(r"visual id|physical description|\b(eyes|hair|beard|glasses|freckles)\b", re.I)
 
 
 def _age_days_of(memory: dict) -> float | None:
@@ -230,18 +234,24 @@ def _ago(age_days: float | None) -> str:
     return "1 day ago"
 
 
-def _format_dated_context(recent: list[dict], older: list[dict]) -> str:
+def _format_dated_context(recent: list[dict], older: list[dict], faces: list[dict] | None = None) -> str:
     """Session-start memory: the usual relevant-memories block, then what was saved recently.
 
     One fixed similarity query surfaced the same old facts every session, undated, so the robot
     kept bringing them up and couldn't tell last night from last spring. The relevant block is
     kept exactly as before (the profile prompt is tuned to it — reshaping it cost identity and
     restraint in the eval); recent conversations come after it, dated, in their own block.
+    Every known person's appearance is appended to the relevant block as a "Visual ID — Name:"
+    entry, which is what the profile prompt compares the camera photo against.
     """
     lines = []
-    if older:
+    entries = [f["fact"] for f in older]
+    for f in faces or []:
+        fact = f["fact"]
+        entries.append(fact if fact.lower().startswith("visual id") else f"Visual ID — {f['user'].title()}: {fact}")
+    if entries:
         lines.append("<vertex_memory_bank>\nRelevant memories from prior sessions:")
-        lines += [f"{i + 1}. {f['fact']}" for i, f in enumerate(older)]
+        lines += [f"{i + 1}. {e}" for i, e in enumerate(entries)]
         lines.append("</vertex_memory_bank>")
     if recent:
         lines.append(
@@ -395,16 +405,25 @@ class VertexMemoryBackend:
         scope_user = user_id or get_active_user()
         relevant, listed = await asyncio.gather(
             self._retrieve(profile, MEMORY_SEARCH_QUERY, user_id=user_id, top_k=OLDER_MAX + RECENT_MAX, with_ids=True),
-            self.list_memories(profile, user_id=scope_user),
+            self.list_memories(profile, profile_wide=True),
         )
         key = (profile, scope_user)
         if self.last_error is not None and key in self._context_cache:
             logger.warning("Memory: retrieve failed, using cached context (user=%r profile=%r)", scope_user, profile)
             self.last_error = None
             return self._context_cache[key]
+        faces = [
+            {"memory_id": m["name"], "fact": m["fact"], "user": m.get("scope", {}).get("user_id") or "?"}
+            for m in listed
+            if m.get("fact") and m.get("name") and _APPEARANCE.search(m["fact"])
+        ]
+        faces.sort(key=lambda f: (f["user"] != scope_user, f["user"]))  # the active user first
+        face_ids = {f["memory_id"] for f in faces}
         recent = []
         for m in listed:
             age = _age_days_of(m)
+            if m.get("scope", {}).get("user_id") != scope_user or m.get("name") in face_ids:
+                continue
             if m.get("fact") and m.get("name") and age is not None and age < RECENT_DAYS:
                 recent.append({"memory_id": m["name"], "fact": m["fact"], "age_days": age})
         recent.sort(key=lambda f: f["age_days"])
@@ -413,20 +432,21 @@ class VertexMemoryBackend:
         older = [
             f
             for f in relevant
-            if f["memory_id"] not in seen and (f.get("age_days") is None or f["age_days"] >= RECENT_DAYS)
+            if f["memory_id"] not in seen | face_ids and (f.get("age_days") is None or f["age_days"] >= RECENT_DAYS)
         ][:OLDER_MAX]
-        if not recent and not older:
+        if not recent and not older and not faces:
             logger.info("Memory: no stored memories for user=%r profile=%r", scope_user, profile)
             context = ""
         else:
             logger.info(
-                "Memory: injecting %d recent + %d older facts (user=%r profile=%r)",
+                "Memory: injecting %d recent + %d older facts + %d visual IDs (user=%r profile=%r)",
                 len(recent),
                 len(older),
+                len(faces),
                 scope_user,
                 profile,
             )
-            context = _format_dated_context(recent, older)
+            context = _format_dated_context(recent, older, faces)
         if self.last_error is None:
             self._context_cache[key] = context
         return context

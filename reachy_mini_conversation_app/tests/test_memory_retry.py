@@ -79,6 +79,9 @@ async def test_load_context_falls_back_to_last_good_context(vertex, monkeypatch)
     assert vertex.last_error == "t2"
 
 
+U1 = {"user_id": "u1", "profile": "default"}
+
+
 def _at(days: float) -> str:
     from datetime import datetime, timezone, timedelta
 
@@ -87,8 +90,8 @@ def _at(days: float) -> str:
 
 @pytest.mark.asyncio
 async def test_load_context_dates_memories_and_lists_recent_first(vertex, monkeypatch) -> None:
-    old = {"fact": "Works in tech.", "name": "m/1", "createTime": _at(170)}
-    new = {"fact": "Started learning chess.", "name": "m/2", "createTime": _at(0.5)}
+    old = {"fact": "Works in tech.", "name": "m/1", "createTime": _at(170), "scope": U1}
+    new = {"fact": "Started learning chess.", "name": "m/2", "createTime": _at(0.5), "scope": U1}
     # Similarity search only surfaces the old fact; the new one must still come in, by date.
     _api_seq(monkeypatch, {"retrievedMemories": [{"distance": 0.1, "memory": old}]}, listed={"memories": [old, new]})
 
@@ -102,10 +105,10 @@ async def test_load_context_dates_memories_and_lists_recent_first(vertex, monkey
 
 @pytest.mark.asyncio
 async def test_load_context_caps_older_and_does_not_repeat_recent(vertex, monkeypatch) -> None:
-    olds = [{"fact": f"Old fact {i}.", "name": f"m/o{i}", "createTime": _at(40 + i)} for i in range(25)]
+    olds = [{"fact": f"Old fact {i}.", "name": f"m/o{i}", "createTime": _at(40 + i), "scope": U1} for i in range(25)]
     recent = [
-        {"fact": "Had pancakes yesterday.", "name": "m/r1", "createTime": _at(1.2)},
-        {"fact": "Watched a film tonight.", "name": "m/r2", "createTime": _at(0.1)},
+        {"fact": "Had pancakes yesterday.", "name": "m/r1", "createTime": _at(1.2), "scope": U1},
+        {"fact": "Watched a film tonight.", "name": "m/r2", "createTime": _at(0.1), "scope": U1},
     ]
     retrieved = [{"distance": 0.1, "memory": m} for m in [recent[0], *olds]]
     _api_seq(monkeypatch, {"retrievedMemories": retrieved}, listed={"memories": olds + recent})
@@ -115,3 +118,29 @@ async def test_load_context_caps_older_and_does_not_repeat_recent(vertex, monkey
     assert ctx.count("Had pancakes yesterday.") == 1
     assert ctx.index("Watched a film tonight.") < ctx.index("Had pancakes yesterday.")  # newest first
     assert sum(f"Old fact {i}." in ctx for i in range(25)) == memory_mod.OLDER_MAX
+
+
+@pytest.mark.asyncio
+async def test_load_context_includes_every_known_face_once(vertex, monkeypatch) -> None:
+    mine = {"fact": "U1 has short grey hair and glasses.", "name": "m/f1", "createTime": _at(90), "scope": U1}
+    theirs = {
+        "fact": "Visual ID — Sam: curly red hair.",
+        "name": "m/f2",
+        "createTime": _at(90),
+        "scope": {"user_id": "sam", "profile": "default"},
+    }
+    other_user_news = {
+        "fact": "Sam got a new bike.",
+        "name": "m/s1",
+        "createTime": _at(0.2),
+        "scope": {"user_id": "sam", "profile": "default"},
+    }
+    retrieved = {"retrievedMemories": [{"distance": 0.1, "memory": mine}]}
+    _api_seq(monkeypatch, retrieved, listed={"memories": [mine, theirs, other_user_news]})
+
+    ctx = await vertex.load_context("default", user_id="u1")
+
+    assert "1. Visual ID — U1: U1 has short grey hair and glasses." in ctx  # labelled, not duplicated
+    assert "2. Visual ID — Sam: curly red hair." in ctx
+    assert ctx.count("grey hair") == 1
+    assert "new bike" not in ctx  # another person's recent news isn't this user's catch-up
