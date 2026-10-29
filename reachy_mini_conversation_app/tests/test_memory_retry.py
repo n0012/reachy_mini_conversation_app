@@ -83,12 +83,12 @@ async def test_load_context_dates_memories_and_lists_recent_first(vertex, monkey
         return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat().replace("+00:00", "Z")
 
     old = {"distance": 0.1, "memory": {"fact": "Works in tech.", "name": "m/1", "createTime": at(170)}}
-    new = {"distance": 0.3, "memory": {"fact": "Expecting a new bed.", "name": "m/2", "createTime": at(0.5)}}
+    new = {"distance": 0.3, "memory": {"fact": "Started learning chess.", "name": "m/2", "createTime": at(0.5)}}
     _api_seq(monkeypatch, {"retrievedMemories": [old, new]})
 
     ctx = await vertex.load_context("default", user_id="u1")
 
-    assert ctx.index("From recent conversations:") < ctx.index("Expecting a new bed. (12 hours ago)")
+    assert ctx.index("From recent conversations:") < ctx.index("Started learning chess. (12 hours ago)")
     assert (
-        ctx.index("Expecting a new bed.") < ctx.index("Older memories:") < ctx.index("Works in tech. (5 months ago)")
+        ctx.index("Started learning chess.") < ctx.index("Older memories:") < ctx.index("Works in tech. (5 months ago)")
     )
