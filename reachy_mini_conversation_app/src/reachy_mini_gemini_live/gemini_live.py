@@ -225,6 +225,11 @@ class GeminiLiveHandler(AsyncStreamHandler):
         # After a wake, go back to sleep if nobody speaks within this many seconds (0 = off).
         self._false_wake_timeout_s: float = float(os.environ.get("REACHY_MINI_FALSE_WAKE_SECONDS", "20"))
         self._user_spoke_since_wake: bool = True
+        from reachy_mini_gemini_live.config import REACHY_MINI_DIR
+        from reachy_mini_gemini_live.wake_clips import recorder_from_env
+
+        self._wake_clips = recorder_from_env(REACHY_MINI_DIR)
+        self._last_wake_clip: Any = None
         import pathlib as _pl
 
         self._ei_model_path = str(
@@ -577,6 +582,9 @@ class GeminiLiveHandler(AsyncStreamHandler):
     async def _false_wake_guard(self) -> None:
         """Go back to sleep if the wake word was a false trigger (nobody talks to us)."""
         await asyncio.sleep(self._false_wake_timeout_s)
+        if self._wake_clips is not None and self._last_wake_clip is not None:
+            self._wake_clips.label(self._last_wake_clip, "real" if self._user_spoke_since_wake else "false")
+            self._last_wake_clip = None
         if not self._sleeping and not self._user_spoke_since_wake and not self._stop_event.is_set():
             logger.warning(
                 "No speech %.0fs after waking — treating as a false wake, back to sleep", self._false_wake_timeout_s
@@ -1301,6 +1309,8 @@ class GeminiLiveHandler(AsyncStreamHandler):
                             raw = np.frombuffer(audio_bytes, dtype=np.int16)
                             if native_channels > 1:
                                 raw = raw.reshape(-1, native_channels).mean(axis=1).astype(np.int16)
+                            if self._wake_clips is not None:
+                                self._wake_clips.push(raw, native_rate)
                             if up != down:
                                 resampled = np.clip(
                                     resample_poly(raw.astype(np.float32), up, down),
@@ -1331,6 +1341,8 @@ class GeminiLiveHandler(AsyncStreamHandler):
                                         )
                                         self._sleeping = False
                                         stop_event.set()  # exits the while loop, context manager closes stream
+                                        if self._wake_clips is not None:
+                                            self._last_wake_clip = self._wake_clips.save(score)
                                         self._play_wake_ack()
                                         asyncio.run_coroutine_threadsafe(self.wake(), loop)
                                         return
