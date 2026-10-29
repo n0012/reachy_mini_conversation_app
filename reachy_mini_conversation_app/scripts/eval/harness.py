@@ -15,7 +15,8 @@ Safety, so an eval can never change anything real:
   * MCP calls other than read-only ones (weather, GetLiveContext, GetDateTime, calendar
     reads) are recorded and answered with a stub — no lights, locks, broadcasts or events.
   * The active-user file points at a temp copy; the profile is a temp copy.
-  * No robot motion (mocked ReachyMini / movement), no wake-word thread, gray camera frames.
+  * No robot motion (mocked ReachyMini / movement), no wake-word thread; the camera returns a
+    fixed still (--camera-image) or a gray frame.
 """
 
 import os
@@ -249,7 +250,12 @@ async def run(args: argparse.Namespace) -> int:
     movement = MagicMock()
     movement.is_idle.return_value = True
     camera = MagicMock()
-    camera.get_latest_frame.return_value = np.full((480, 640, 3), 128, dtype=np.uint8)
+    frame = np.full((480, 640, 3), 128, dtype=np.uint8)
+    if args.camera_image:
+        import cv2
+
+        frame = cv2.imread(args.camera_image)  # BGR, like the camera worker
+    camera.get_latest_frame.return_value = frame
     deps = ToolDependencies(
         reachy_mini=MagicMock(), movement_manager=movement, camera_worker=camera, head_wobbler=MagicMock()
     )
@@ -420,7 +426,7 @@ def compute_metrics(
         "replied": sum(t["replied"] for t in turns),
         "median_latency_s": round(float(np.median(latencies)), 2) if latencies else None,
         "unprompted_speech": unprompted_speech,
-        "placeholders_shown": sum(1 for m in msgs if m["role"] == "assistant" and is_placeholder(m["content"])),
+        "placeholders_shown": sum(1 for m in assistant if is_placeholder(m["content"])),
         "tool_echoes_shown": sum(1 for m in msgs if m.get("tool_echo")),
         "restarts": max(0, sum(1 for r in logs if r["msg"].startswith("Session starting")) - 1),
         "errors": len(errors),
@@ -482,6 +488,7 @@ def main() -> None:
     ap.add_argument("--expectations", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--profile-overlay", help="directory of profile files to lay over the robot's profile")
+    ap.add_argument("--camera-image", help="JPEG the fake camera returns (default: a gray frame)")
     sys.exit(asyncio.run(run(ap.parse_args())))
 
 

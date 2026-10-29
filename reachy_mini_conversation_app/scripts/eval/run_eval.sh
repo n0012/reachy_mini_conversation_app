@@ -20,6 +20,8 @@ ROBOT="${ROBOT:-pollen@reachy-mini.local}"
 ROBOT_KEY="${ROBOT_KEY:-$HOME/.ssh/reachy_mini_ed25519}"
 EVAL_DIR="${REACHY_EVAL_DIR:-$HOME/.reachy_eval}"
 ROBOT_PY="/venvs/apps_venv/bin/python"
+# A real still from the robot's camera (personal, local only); gray frames if absent.
+CAMERA_IMAGE="$EVAL_DIR/camera/frame.jpg"
 
 APP_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 REPO_ROOT="$(git -C "$APP_ROOT" rev-parse --show-toplevel)"
@@ -58,7 +60,8 @@ short="$(git -C "$REPO_ROOT" rev-parse --short "$sha")"
 # The harness and scenarios are part of the measurement: results are only comparable
 # when they were produced by the same harness version.
 harness_id="$(cat "$APP_ROOT/scripts/eval/harness.py" "$APP_ROOT/scripts/eval/scenarios.json" \
-  "$EVAL_DIR/audio/manifest.json" ${overlay:+$(find "$overlay" -type f | sort)} | shasum | cut -c1-12)"
+  "$EVAL_DIR/audio/manifest.json" ${overlay:+$(find "$overlay" -type f | sort)} \
+  $( [ -f "$CAMERA_IMAGE" ] && echo "$CAMERA_IMAGE") | shasum | cut -c1-12)"
 results="$EVAL_DIR/results/$sha"
 [ "$smoke" = 1 ] && results="$EVAL_DIR/smoke/$sha"
 
@@ -69,6 +72,7 @@ build_package "$sha" "$local_tmp/pkg/reachy_mini_gemini_live"
 mkdir -p "$local_tmp/harness" "$local_tmp/audio"
 cp "$APP_ROOT/scripts/eval/harness.py" "$APP_ROOT/scripts/eval/scenarios.json" "$local_tmp/harness/"
 cp "$EVAL_DIR/expectations.json" "$local_tmp/harness/"
+[ -f "$CAMERA_IMAGE" ] && cp "$CAMERA_IMAGE" "$local_tmp/harness/camera.jpg"
 cp "$EVAL_DIR/audio/manifest.json" "$EVAL_DIR"/audio/step-*.wav "$local_tmp/audio/"
 [ -n "$overlay" ] && cp -R "$overlay" "$local_tmp/overlay"
 
@@ -79,7 +83,8 @@ rm -rf "$local_tmp"
 
 say "running $runs conversation(s) in parallel (~7 min)"
 overlay_arg=""
-[ -n "$overlay" ] && overlay_arg="--profile-overlay $remote/overlay"
+[ -f "$CAMERA_IMAGE" ] && overlay_arg="--camera-image harness/camera.jpg"
+[ -n "$overlay" ] && overlay_arg="$overlay_arg --profile-overlay $remote/overlay"
 robot "cd $remote && for i in \$(seq 1 $runs); do
   mkdir -p out/run\$i
   PYTHONPATH=$remote/pkg $ROBOT_PY -u harness/harness.py --scenarios harness/scenarios.json --audio audio \
