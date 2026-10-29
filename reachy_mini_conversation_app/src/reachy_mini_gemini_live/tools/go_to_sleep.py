@@ -37,6 +37,7 @@ class GoToSleep(Tool):
     }
 
     async def __call__(self, deps: ToolDependencies, **kwargs: Any) -> Dict[str, Any]:
+        """Schedule sleep after a short pause so the goodbye finishes playing."""
         reason = kwargs.get("reason", "user requested sleep")
         logger.info("Tool call: go_to_sleep reason=%s", reason)
         if deps.request_sleep is None:

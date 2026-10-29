@@ -7,19 +7,20 @@ Uses espeak-ng (apt: `sudo apt-get install -y espeak-ng`) since it's tiny,
 offline, and we don't have GCP credentials yet during setup. Gracefully no-ops
 if espeak-ng isn't installed.
 """
-from __future__ import annotations
 
+from __future__ import annotations
 import io
-import logging
+import wave
 import shutil
 import socket
-import subprocess
+import logging
 import tempfile
-import wave
+import subprocess
 from math import gcd
 from pathlib import Path
 
 import numpy as np
+
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,8 @@ def _ensure_espeak_ng() -> bool:
     try:
         result = subprocess.run(
             ["sudo", "-n", "apt-get", "install", "-y", "-q", "espeak-ng"],
-            capture_output=True, timeout=120,
+            capture_output=True,
+            timeout=120,
         )
     except subprocess.TimeoutExpired:
         logger.warning("espeak-ng install timed out — likely sudo password prompt; staying silent.")
@@ -87,7 +89,8 @@ def _synthesize_to_wav(text: str) -> bytes | None:
     try:
         result = subprocess.run(
             ["espeak-ng", "-s", "150", "-w", wav_path, text],
-            capture_output=True, timeout=10,
+            capture_output=True,
+            timeout=10,
         )
         if result.returncode != 0:
             logger.warning(
@@ -143,11 +146,10 @@ def _play_wav(wav_bytes: bytes) -> None:
 
     if rate != device_rate:
         from scipy.signal import resample_poly
+
         g = gcd(rate, device_rate)
         up, down = device_rate // g, rate // g
-        mono = np.clip(
-            resample_poly(mono.astype(np.float32), up, down), -32768, 32767
-        ).astype(np.int16)
+        mono = np.clip(resample_poly(mono.astype(np.float32), up, down), -32768, 32767).astype(np.int16)
 
     audio = np.repeat(mono[:, None], device_channels, axis=1) if device_channels > 1 else mono
     sd.play(audio, samplerate=device_rate, device=device_id, blocking=True)
@@ -165,10 +167,7 @@ def announce_setup_url(port: int = 7860) -> None:
         # sixty eight point zero point sixty" — clearer to insert short pauses
         # between octets so each digit group is parsed individually.
         ip_spoken = ".  ".join(ip.split("."))
-        text = (
-            f"Hello! Please set me up. "
-            f"Open me in a browser at {ip_spoken}, port {port}."
-        )
+        text = f"Hello! Please set me up. Open me in a browser at {ip_spoken}, port {port}."
         logger.info("Setup announcement: ip=%s port=%d", ip, port)
         wav = _synthesize_to_wav(text)
         if wav is not None:

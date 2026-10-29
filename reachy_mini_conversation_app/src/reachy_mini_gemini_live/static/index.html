@@ -310,8 +310,8 @@
             <p class="muted small" style="margin:0 0 12px">Idle timeout before Reachy goes to sleep on its own. Wake with "Hey Reachy".</p>
             <div class="row" style="display:flex;gap:8px;align-items:center">
               <label for="cfg-auto-sleep" style="margin:0;flex:1">Auto-sleep after</label>
-              <input id="cfg-auto-sleep" type="number" min="1" max="60" step="1" style="width:90px;text-align:right" />
-              <span class="muted small">minutes</span>
+              <input id="cfg-auto-sleep" type="number" min="0" max="60" step="1" style="width:90px;text-align:right" title="0 = never" />
+              <span class="muted small">minutes (0 = never)</span>
             </div>
             <div class="actions" style="margin-top:10px">
               <button id="cfg-behavior-save">Save behavior</button>

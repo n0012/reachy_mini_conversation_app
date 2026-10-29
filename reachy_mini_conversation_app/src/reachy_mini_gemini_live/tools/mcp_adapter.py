@@ -5,12 +5,11 @@ after the static tools are initialized.
 """
 
 from __future__ import annotations
-
 import logging
 from typing import Any, Dict
 
 from reachy_mini_gemini_live.tools.core_tools import ALL_TOOLS, ALL_TOOL_SPECS, Tool, ToolDependencies
-from reachy_mini_gemini_live.tools.mcp_client import MCPClientPool, MCPToolSpec
+from reachy_mini_gemini_live.tools.mcp_client import MCPToolSpec, MCPClientPool
 
 
 logger = logging.getLogger(__name__)
@@ -20,16 +19,20 @@ class MCPToolAdapter(Tool):
     """Wraps one MCP tool as a Tool for the existing dispatch system."""
 
     def __init__(self, spec: MCPToolSpec, pool: MCPClientPool) -> None:
+        """Wrap an MCP tool spec as a local Tool."""
         self.name = f"{spec.server_name}__{spec.tool_name}"
         self.description = f"[MCP:{spec.server_name}] {spec.description}"
         self.parameters_schema: Dict[str, Any] = spec.parameters_schema or {
-            "type": "object", "properties": {}, "required": [],
+            "type": "object",
+            "properties": {},
+            "required": [],
         }
         self._server_name = spec.server_name
         self._tool_name = spec.tool_name
         self._pool = pool
 
     async def __call__(self, deps: ToolDependencies, **kwargs: Any) -> Dict[str, Any]:
+        """Forward the call to the MCP server."""
         result = await self._pool.call_tool(self._server_name, self._tool_name, kwargs)
         return {"result": result}
 

@@ -8,22 +8,26 @@ Environment vars required:
   HA_MCP_TOKEN  - Long-Lived Access Token
 """
 
-import asyncio
-import json
 import os
+import json
+import asyncio
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone, timedelta
+
+
 try:
     from zoneinfo import ZoneInfo
 except ImportError:
     from backports.zoneinfo import ZoneInfo  # type: ignore
 
+from mcp.types import Tool, TextContent
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
+
 
 HA_URL = os.environ.get("HA_URL", "http://homeassistant.local:8123")
 HA_TOKEN = os.environ.get("HA_MCP_TOKEN", "")
+
 
 def _get_local_tz() -> ZoneInfo:
     """Get the timezone from HA config, falling back to UTC."""
@@ -39,7 +43,7 @@ def _get_local_tz() -> ZoneInfo:
 # Find them at: Settings → Devices & Services → Google Calendar
 # Each key is a short name you use in conversation ("check my work calendar")
 CALENDARS = {
-    "personal": "calendar.personal",    # replace with your HA calendar entity IDs
+    "personal": "calendar.personal",  # replace with your HA calendar entity IDs
     "family": "calendar.family",
     "birthdays": "calendar.birthdays",
     "holidays": "calendar.holidays_in_united_states",
@@ -82,14 +86,16 @@ def _get_events(calendar_id: str, start: str, end: str) -> list:
     for e in events:
         start_dt = e.get("start", {})
         end_dt = e.get("end", {})
-        result.append({
-            "summary": e.get("summary", ""),
-            "start": start_dt.get("dateTime") or start_dt.get("date", ""),
-            "end": end_dt.get("dateTime") or end_dt.get("date", ""),
-            "description": e.get("description", ""),
-            "location": e.get("location", ""),
-            "uid": e.get("uid", ""),
-        })
+        result.append(
+            {
+                "summary": e.get("summary", ""),
+                "start": start_dt.get("dateTime") or start_dt.get("date", ""),
+                "end": end_dt.get("dateTime") or end_dt.get("date", ""),
+                "description": e.get("description", ""),
+                "location": e.get("location", ""),
+                "uid": e.get("uid", ""),
+            }
+        )
     return result
 
 
@@ -98,6 +104,7 @@ server = Server("calendar")
 
 @server.list_tools()
 async def list_tools() -> list[Tool]:
+    """Advertise the calendar tools."""
     return [
         Tool(
             name="create_calendar_event",
@@ -169,12 +176,13 @@ async def list_tools() -> list[Tool]:
                     },
                 },
             },
-        )
+        ),
     ]
 
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+    """Dispatch a calendar tool call."""
     if name == "create_calendar_event":
         default_cal = next(iter(CALENDARS))  # first calendar in CALENDARS is the default
         calendar = (arguments.get("calendar") or default_cal).strip().lower()
@@ -208,9 +216,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 result = _ha_post("/api/services/calendar/create_event", payload)
                 if "error" in result:
                     return [TextContent(type="text", text=f"Failed to create event: {result['error']}")]
-                return [TextContent(type="text", text=
-                    f"Created '{summary}' on {start} in {calendar} calendar. "
-                    f"Note: invite emails ({', '.join(attendees)}) could not be added automatically — send invites manually.")]
+                return [
+                    TextContent(
+                        type="text",
+                        text=f"Created '{summary}' on {start} in {calendar} calendar. "
+                        f"Note: invite emails ({', '.join(attendees)}) could not be added automatically — send invites manually.",
+                    )
+                ]
             return [TextContent(type="text", text=f"Failed to create event: {result['error']}")]
         invited = f" — invited {', '.join(attendees)}" if attendees else ""
         return [TextContent(type="text", text=f"Created '{summary}' on {start} in {calendar} calendar{invited}.")]
@@ -269,6 +281,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
 
 async def main():
+    """Serve the calendar MCP server over stdio."""
     async with stdio_server() as (read_stream, write_stream):
         await server.run(read_stream, write_stream, server.create_initialization_options())
 

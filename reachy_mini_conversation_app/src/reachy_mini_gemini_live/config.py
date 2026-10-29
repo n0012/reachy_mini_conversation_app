@@ -7,6 +7,7 @@ from importlib.resources import files
 
 from dotenv import find_dotenv, load_dotenv
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -36,8 +37,7 @@ def _migrate_legacy_dotdir() -> None:
     if REACHY_MINI_DIR.exists() or not _LEGACY_REACHY_MINI_DIR.is_dir():
         return
     has_payload = any(
-        (_LEGACY_REACHY_MINI_DIR / name).exists()
-        for name in (*_LEGACY_MIGRATION_FILES, *_LEGACY_MIGRATION_DIRS)
+        (_LEGACY_REACHY_MINI_DIR / name).exists() for name in (*_LEGACY_MIGRATION_FILES, *_LEGACY_MIGRATION_DIRS)
     )
     if not has_payload:
         return
@@ -167,7 +167,7 @@ AVAILABLE_VOICES: list[str] = [
     "Zubenelgenubi",
 ]
 
-DEFAULT_MODEL_NAME = "gemini-3.1-flash-live-preview"
+DEFAULT_MODEL_NAME = "gemini-3.8-live"
 DEFAULT_VOICE = "Kore"
 
 GEMINI_BACKEND = "gemini"
@@ -180,7 +180,7 @@ def _resolve_model_name(model_name: str | None = None) -> str:
 
 
 DEFAULT_AUTO_SLEEP_MINUTES = 10
-AUTO_SLEEP_MINUTES_RANGE = (1, 60)
+AUTO_SLEEP_MINUTES_RANGE = (0, 60)  # 0 = never auto-sleep
 
 
 def _resolve_auto_sleep_minutes(value: str | None) -> int:
@@ -240,6 +240,7 @@ if LOCKED_PROFILE is not None:
         print(f"Error: LOCKED_PROFILE '{LOCKED_PROFILE}' has no instructions.txt", file=sys.stderr)
         sys.exit(1)
 
+
 class Config:
     """Configuration class for the conversation app."""
 
@@ -260,8 +261,10 @@ class Config:
     _profiles_override_env = os.getenv("REACHY_MINI_PROFILES_OVERRIDE")
     _profiles_directory_env = os.getenv("REACHY_MINI_EXTERNAL_PROFILES_DIRECTORY")
     PROFILES_DIRECTORY = (
-        Path(_profiles_override_env).expanduser().resolve() if _profiles_override_env
-        else Path(_profiles_directory_env) if _profiles_directory_env
+        Path(_profiles_override_env).expanduser().resolve()
+        if _profiles_override_env
+        else Path(_profiles_directory_env)
+        if _profiles_directory_env
         else DEFAULT_PROFILES_DIRECTORY
     )
     _tools_directory_env = os.getenv("REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY")
@@ -349,12 +352,12 @@ def refresh_runtime_config_from_env() -> None:
 
 
 def get_backend_choice(model_name: str | None = None) -> str:
-    """Always returns gemini — this fork is Gemini-only."""
+    """Return "gemini" — this fork is Gemini-only."""
     return GEMINI_BACKEND
 
 
 def get_model_name_for_backend(backend: str) -> str:
-    """Returns the configured model name regardless of backend arg."""
+    """Return the configured model name regardless of backend arg."""
     return config.MODEL_NAME
 
 
@@ -369,7 +372,7 @@ def get_default_voice_for_backend(backend: str | None = None) -> str:
 
 
 def is_gemini_model() -> bool:
-    """Always True — this fork is Gemini-only."""
+    """Return True — this fork is Gemini-only."""
     return True
 
 

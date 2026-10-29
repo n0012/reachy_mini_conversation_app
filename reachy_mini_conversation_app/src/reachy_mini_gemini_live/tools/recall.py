@@ -49,6 +49,7 @@ class RecallTool(Tool):
     }
 
     async def __call__(self, deps: ToolDependencies, **kwargs: Any) -> Dict[str, Any]:
+        """Search the active user's memories."""
         query: str = (kwargs.get("query") or "").strip()
         if not query:
             return {"status": "error", "message": "No query provided."}

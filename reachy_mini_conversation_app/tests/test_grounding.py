@@ -37,9 +37,7 @@ def test_grounding_off_via_env(monkeypatch: pytest.MonkeyPatch, val: str) -> Non
 
 
 @pytest.mark.parametrize("content", ["true", "1", "yes", "google_search=true", "True"])
-def test_grounding_on_via_profile_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, content: str
-) -> None:
+def test_grounding_on_via_profile_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, content: str) -> None:
     profile_dir = tmp_path / "test_profile"
     profile_dir.mkdir()
     (profile_dir / "grounding.txt").write_text(content)
@@ -48,18 +46,14 @@ def test_grounding_on_via_profile_file(
     assert get_session_grounding() is True
 
 
-def test_grounding_off_when_profile_file_missing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_grounding_off_when_profile_file_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (tmp_path / "test_profile").mkdir()
     monkeypatch.setattr(prompts_mod.config, "REACHY_MINI_CUSTOM_PROFILE", "test_profile")
     monkeypatch.setattr(prompts_mod.config, "PROFILES_DIRECTORY", tmp_path)
     assert get_session_grounding() is False
 
 
-def test_profile_grounding_overrides_env(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_profile_grounding_overrides_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Per-profile file takes priority — profile says false, env says true."""
     profile_dir = tmp_path / "test_profile"
     profile_dir.mkdir()

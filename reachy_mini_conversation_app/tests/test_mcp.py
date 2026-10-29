@@ -2,18 +2,17 @@
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from reachy_mini_gemini_live.tools.core_tools import ALL_TOOLS, ALL_TOOL_SPECS
+from reachy_mini_gemini_live.tools.mcp_client import MCPToolSpec, MCPClientPool
 from reachy_mini_gemini_live.tools.mcp_adapter import (
     MCPToolAdapter,
-    deregister_mcp_tools,
     register_mcp_tools,
+    deregister_mcp_tools,
 )
-from reachy_mini_gemini_live.tools.mcp_client import MCPClientPool, MCPToolSpec, _ServerConfig
-from reachy_mini_gemini_live.tools.core_tools import ALL_TOOLS, ALL_TOOL_SPECS
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -122,9 +121,9 @@ def test_from_profile_empty_when_no_file(tmp_path: Path) -> None:
 def test_from_profile_loads_stdio_config(tmp_path: Path) -> None:
     profile_dir = tmp_path / "myprofile"
     profile_dir.mkdir()
-    (profile_dir / "mcp_servers.json").write_text(json.dumps([
-        {"name": "fs", "transport": "stdio", "command": ["npx", "server-fs", "/tmp"]}
-    ]))
+    (profile_dir / "mcp_servers.json").write_text(
+        json.dumps([{"name": "fs", "transport": "stdio", "command": ["npx", "server-fs", "/tmp"]}])
+    )
     pool = MCPClientPool.from_profile("myprofile", tmp_path)
     assert not pool.is_empty()
     assert "fs" in pool._conns
@@ -133,9 +132,9 @@ def test_from_profile_loads_stdio_config(tmp_path: Path) -> None:
 def test_from_profile_loads_sse_config(tmp_path: Path) -> None:
     profile_dir = tmp_path / "myprofile"
     profile_dir.mkdir()
-    (profile_dir / "mcp_servers.json").write_text(json.dumps([
-        {"name": "remote", "transport": "sse", "url": "http://localhost:8765"}
-    ]))
+    (profile_dir / "mcp_servers.json").write_text(
+        json.dumps([{"name": "remote", "transport": "sse", "url": "http://localhost:8765"}])
+    )
     pool = MCPClientPool.from_profile("myprofile", tmp_path)
     assert "remote" in pool._conns
 

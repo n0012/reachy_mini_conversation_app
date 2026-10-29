@@ -1,17 +1,15 @@
 """Tests for memory hygiene primitives: recency boost, ttl, purge, search-with-ids."""
 
 from __future__ import annotations
-
-from datetime import datetime, timedelta, timezone
-from typing import Any
+from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from reachy_mini_gemini_live.memory import (
-    FileMemoryBackend,
     RECENCY_ALPHA,
     RECENCY_TAU_DAYS,
+    FileMemoryBackend,
     VertexMemoryBackend,
 )
 
@@ -30,8 +28,8 @@ def _mem(fact: str, distance: float, age_days: float, name: str = "memories/x") 
 
 def test_rerank_recent_beats_old_when_similarity_close():
     items = [
-        _mem("OLD", distance=0.05, age_days=180),     # sim 0.95
-        _mem("RECENT", distance=0.15, age_days=1),    # sim 0.85, very recent
+        _mem("OLD", distance=0.05, age_days=180),  # sim 0.95
+        _mem("RECENT", distance=0.15, age_days=1),  # sim 0.85, very recent
     ]
     ranked = VertexMemoryBackend._rerank_with_recency(items)
     assert ranked[0]["memory"]["fact"] == "RECENT", "Recent fact should outrank old when similarity is close"
@@ -40,7 +38,7 @@ def test_rerank_recent_beats_old_when_similarity_close():
 def test_rerank_old_wins_when_recent_is_far_off_topic():
     items = [
         _mem("OLD_RELEVANT", distance=0.10, age_days=365),  # sim 0.90
-        _mem("RECENT_NOISE", distance=0.90, age_days=1),    # sim 0.10 — almost off-topic
+        _mem("RECENT_NOISE", distance=0.90, age_days=1),  # sim 0.10 — almost off-topic
     ]
     ranked = VertexMemoryBackend._rerank_with_recency(items)
     assert ranked[0]["memory"]["fact"] == "OLD_RELEVANT"

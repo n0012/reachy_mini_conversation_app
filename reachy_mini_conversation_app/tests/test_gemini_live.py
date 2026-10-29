@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, call
 
 import numpy as np
 import pytest
-from fastrtc import AdditionalOutputs
 
 import reachy_mini_gemini_live.gemini_live as gemini_mod
+from reachy_mini_gemini_live.streaming import AdditionalOutputs
 from reachy_mini_gemini_live.gemini_live import GeminiLiveHandler
 from reachy_mini_gemini_live.tools.core_tools import ToolDependencies
 from reachy_mini_gemini_live.tools.tool_constants import ToolState

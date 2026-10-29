@@ -66,6 +66,7 @@ class ForgetTool(Tool):
     }
 
     async def __call__(self, deps: ToolDependencies, **kwargs: Any) -> Dict[str, Any]:
+        """Delete the given memory IDs."""
         memory_ids: List[str] = kwargs.get("memory_ids") or []
         reason: str = (kwargs.get("reason") or "").strip() or "no reason given"
         if not memory_ids:

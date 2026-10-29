@@ -9,10 +9,7 @@ import threading
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 
-import gradio as gr
 from fastapi import FastAPI
-from fastrtc import Stream
-from gradio.utils import get_space
 
 from reachy_mini import ReachyMini, ReachyMiniApp
 from reachy_mini_gemini_live.utils import (
@@ -40,25 +37,28 @@ def _ensure_launcher_metadata() -> None:
     """
     try:
         import json as _json
+
         meta_path = Path("/venvs/.app_metadata/reachy_mini_gemini_live.json")
         if not meta_path.parent.exists():
             return
         current = _json.loads(meta_path.read_text()) if meta_path.exists() else {}
         if current.get("cardData", {}).get("emoji"):
             return  # already populated
-        current.update({
-            "id": "n0012/reachy_mini_conversation_app_gemini",
-            "author": "n0012",
-            "isPythonApp": True,
-            "cardData": {
-                "emoji": "✨",
-                "title": "Reachy Mini Gemini Live Edition",
-                "short_description": "Gemini Live robot with memory, MCP tools, home control",
-                "sdk": "static",
-                "colorFrom": "blue",
-                "colorTo": "purple",
-            },
-        })
+        current.update(
+            {
+                "id": "n0012/reachy_mini_conversation_app_gemini",
+                "author": "n0012",
+                "isPythonApp": True,
+                "cardData": {
+                    "emoji": "✨",
+                    "title": "Reachy Mini Gemini Live Edition",
+                    "short_description": "Gemini Live robot with memory, MCP tools, home control",
+                    "sdk": "static",
+                    "colorFrom": "blue",
+                    "colorTo": "purple",
+                },
+            }
+        )
         meta_path.write_text(_json.dumps(current, indent=2, ensure_ascii=False))
     except Exception:
         pass  # never crash startup over a metadata file
@@ -144,6 +144,14 @@ def run(
         logger.info("Simulation mode detected. Automatically enabling gradio flag.")
         args.gradio = True
 
+    if args.gradio:
+        try:
+            import gradio as gr
+            from fastrtc import Stream
+        except ImportError:
+            logger.warning("gradio/fastrtc not installed (incompatible with reachy-mini>=1.12) — running headless")
+            args.gradio = False
+
     try:
         camera_worker, vision_processor = initialize_camera_and_vision(args, robot)
     except CameraVisionInitializationError as e:
@@ -166,28 +174,26 @@ def run(
     )
     current_file_path = os.path.dirname(os.path.abspath(__file__))
     logger.debug(f"Current file absolute path: {current_file_path}")
-    chatbot = gr.Chatbot(
-        type="messages",
-        resizable=True,
-        avatar_images=(
-            os.path.join(current_file_path, "images", "user_avatar.png"),
-            os.path.join(current_file_path, "images", "reachymini_avatar.png"),
-        ),
-    )
-    logger.debug(f"Chatbot avatar images: {chatbot.avatar_images}")
-
     from reachy_mini_gemini_live.gemini_live import GeminiLiveHandler
 
     logger.info("Using Gemini Live handler for model: %s", config.MODEL_NAME)
     handler = GeminiLiveHandler(deps, gradio_mode=args.gradio, instance_path=instance_path)
 
-    stream_manager: gr.Blocks | LocalStream | None = None
+    stream_manager: Any = None
 
     if args.gradio:
+        chatbot = gr.Chatbot(
+            type="messages",
+            resizable=True,
+            avatar_images=(
+                os.path.join(current_file_path, "images", "user_avatar.png"),
+                os.path.join(current_file_path, "images", "reachymini_avatar.png"),
+            ),
+        )
         api_key_textbox = gr.Textbox(
             label="GEMINI_API_KEY",
             type="password",
-            value=os.getenv("GEMINI_API_KEY") if not get_space() else "",
+            value=os.getenv("GEMINI_API_KEY") if not os.getenv("SPACE_ID") else "",
         )
 
         from reachy_mini_gemini_live.gradio_personality import PersonalityUI
@@ -225,6 +231,12 @@ def run(
             settings_app=settings_app,
             instance_path=instance_path,
         )
+
+    # The daemon leaves an asleep robot limp when an app starts; starting the app
+    # is the human's request to talk, so wake him before the movement loop runs.
+    from reachy_mini_gemini_live.robot_health import ensure_awake
+
+    ensure_awake(robot)
 
     # Each async service → its own thread/loop
     movement_manager.start()

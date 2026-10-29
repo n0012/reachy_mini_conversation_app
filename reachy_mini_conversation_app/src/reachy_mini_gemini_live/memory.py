@@ -14,22 +14,21 @@ Memory Bank REST API (no Python SDK required — uses google-auth + urllib):
 """
 
 from __future__ import annotations
-
-import json
-import logging
 import os
-import urllib.error
-import urllib.request
+import json
+import math
 import asyncio
-from datetime import date
-from pathlib import Path
+import logging
+import urllib.error
+import urllib.parse
+import urllib.request
 from typing import Protocol, runtime_checkable
+from pathlib import Path
+from datetime import date, datetime, timezone
+from datetime import timedelta as _td
 
 import google.auth
 import google.auth.transport.requests
-import math
-import urllib.parse
-from datetime import datetime, timedelta as _td, timezone
 
 
 logger = logging.getLogger(__name__)
@@ -39,6 +38,7 @@ logger = logging.getLogger(__name__)
 MEMORY_SEARCH_QUERY = "What do I know about this user, their preferences, and our recent conversations?"
 
 from reachy_mini_gemini_live.config import REACHY_MINI_DIR  # noqa: E402
+
 
 _DEFAULT_MEMORY_DIR = REACHY_MINI_DIR / "memory"
 _ACTIVE_USER_FILE = REACHY_MINI_DIR / "active_user.json"
@@ -51,10 +51,10 @@ DEFAULT_USER_ID = "unknown"
 # Tuned so a fact from yesterday outranks a slightly more similar fact from
 # 6 months ago, but old facts still surface when nothing recent matches.
 RECENCY_ALPHA = float(os.getenv("REACHY_MINI_RECENCY_ALPHA", "0.15"))  # recency weight (0=off, 1=strong)
-RECENCY_TAU_DAYS = 30.0     # decay constant — bonus ~37% at this age
-MAX_DISTANCE = 1.5          # client-side similarity filter
-DEFAULT_FETCH_K = 50        # over-fetch before re-rank
-DEFAULT_TOP_K = int(os.getenv("REACHY_MINI_TOP_K", "20"))             # memories surfaced per session
+RECENCY_TAU_DAYS = 30.0  # decay constant — bonus ~37% at this age
+MAX_DISTANCE = 1.5  # client-side similarity filter
+DEFAULT_FETCH_K = 50  # over-fetch before re-rank
+DEFAULT_TOP_K = int(os.getenv("REACHY_MINI_TOP_K", "20"))  # memories surfaced per session
 
 
 def get_active_user() -> str:
@@ -83,6 +83,7 @@ def set_active_user(user_id: str) -> None:
 
 # ── Protocol ─────────────────────────────────────────────────────────────────
 
+
 @runtime_checkable
 class MemoryBackend(Protocol):
     """Interface all memory backends must satisfy."""
@@ -91,16 +92,20 @@ class MemoryBackend(Protocol):
         """Return a text block injected into system_instruction at session start."""
         ...
 
-    async def search(self, profile: str, query: str, user_id: str | None = None, top_k: int = 10, with_ids: bool = False) -> list:
+    async def search(
+        self, profile: str, query: str, user_id: str | None = None, top_k: int = 10, with_ids: bool = False
+    ) -> list:
         """Mid-conversation recall — return up to top_k facts matching the query."""
         ...
 
-    async def save_session(self, profile: str, transcript: list[dict], user_id: str | None = None) -> None:
-        """Persist a completed session transcript (fire-and-forget is fine)."""
+    async def save_session(self, profile: str, transcript: list[dict], user_id: str | None = None) -> str:
+        """Persist a completed session transcript. Returns "saved", "skipped" or "failed"."""
         ...
 
-    async def remember(self, profile: str, fact: str, user_id: str | None = None, lifetime_days: int | None = None) -> None:
-        """Store an explicit fact the model decided to keep. lifetime_days makes it expire."""
+    async def remember(
+        self, profile: str, fact: str, user_id: str | None = None, lifetime_days: int | None = None
+    ) -> bool:
+        """Store an explicit fact the model decided to keep. lifetime_days makes it expire. True on success."""
         ...
 
     async def list_memories(self, profile: str, user_id: str | None = None, page_size: int = 100) -> list[dict]:
@@ -115,7 +120,9 @@ class MemoryBackend(Protocol):
         """Sweep ttl_until-tagged memories whose date is past. Returns count deleted."""
         ...
 
-    async def compact_memories(self, profile: str, user_id: str | None = None, dry_run: bool = True, max_actions: int = 25) -> dict:
+    async def compact_memories(
+        self, profile: str, user_id: str | None = None, dry_run: bool = True, max_actions: int = 25
+    ) -> dict:
         """LLM-driven dedup/cleanup pass. Returns {analyzed, proposed, applied, summary}."""
         ...
 
@@ -136,9 +143,7 @@ def _get_token() -> str:
     """
     global _credentials
     if _credentials is None:
-        _credentials, _ = google.auth.default(
-            scopes=["https://www.googleapis.com/auth/cloud-platform"]
-        )
+        _credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
     if not _credentials.valid:
         try:
             _credentials.refresh(_http_request)
@@ -175,14 +180,15 @@ class VertexMemoryBackend:
     """
 
     def __init__(self) -> None:
+        """Read Memory Bank coordinates from the environment."""
         self.project = os.environ["GCP_PROJECT_ID"]
         self.location = os.environ.get("GCP_LOCATION", "us-central1")
         self.engine_id = os.environ["VERTEX_REASONING_ENGINE_ID"]
         self._base = f"https://{self.location}-aiplatform.googleapis.com/v1beta1"
-        self._parent = (
-            f"projects/{self.project}/locations/{self.location}"
-            f"/reasoningEngines/{self.engine_id}"
-        )
+        self._parent = f"projects/{self.project}/locations/{self.location}/reasoningEngines/{self.engine_id}"
+        # Last Memory Bank failure (None = last call succeeded). Lets the session tell
+        # the user memory is down instead of silently forgetting them.
+        self.last_error: str | None = None
 
     def _url(self, path: str) -> str:
         return f"{self._base}/{self._parent}/{path}"
@@ -214,20 +220,29 @@ class VertexMemoryBackend:
         try:
             resp = await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: _api("POST", self._url("memories:retrieve"), {
-                    "scope": scope,
-                    "similarity_search_params": {
-                        "search_query": query,
-                        "top_k": fetch_k,
+                lambda: _api(
+                    "POST",
+                    self._url("memories:retrieve"),
+                    {
+                        "scope": scope,
+                        "similarity_search_params": {
+                            "search_query": query,
+                            "top_k": fetch_k,
+                        },
                     },
-                }),
+                ),
             )
         except Exception as exc:
             logger.warning(
                 "Memory: retrieve failed (user=%r profile=%r query=%r): %s",
-                scope["user_id"], profile, query[:60], exc,
+                scope["user_id"],
+                profile,
+                query[:60],
+                exc,
             )
+            self.last_error = str(exc)
             return []
+        self.last_error = None
 
         all_memories = resp.get("retrievedMemories", [])
         cutoff = max_distance if max_distance is not None else MAX_DISTANCE
@@ -235,7 +250,8 @@ class VertexMemoryBackend:
         if len(kept) < len(all_memories):
             logger.info(
                 "Memory: filtered %d low-quality results (maxDistance=%.1f)",
-                len(all_memories) - len(kept), MAX_DISTANCE,
+                len(all_memories) - len(kept),
+                MAX_DISTANCE,
             )
         if not kept:
             return []
@@ -255,7 +271,9 @@ class VertexMemoryBackend:
             age_days: float | None = None
             if ts:
                 try:
-                    age_days = round((now - datetime.fromisoformat(ts.replace("Z", "+00:00"))).total_seconds() / 86400.0, 1)
+                    age_days = round(
+                        (now - datetime.fromisoformat(ts.replace("Z", "+00:00"))).total_seconds() / 86400.0, 1
+                    )
                 except Exception:
                     pass
             out.append({"memory_id": name, "fact": fact, "age_days": age_days})
@@ -293,7 +311,7 @@ class VertexMemoryBackend:
             logger.info("Memory: no stored memories for user=%r profile=%r", scope_user, profile)
             return ""
         logger.info("Memory: injecting %d facts (user=%r profile=%r)", len(facts), scope_user, profile)
-        numbered = "\n".join(f"{i+1}. {f}" for i, f in enumerate(facts))
+        numbered = "\n".join(f"{i + 1}. {f}" for i, f in enumerate(facts))
         return f"<vertex_memory_bank>\nRelevant memories from prior sessions:\n{numbered}\n</vertex_memory_bank>"
 
     async def search(
@@ -312,7 +330,9 @@ class VertexMemoryBackend:
         plain strings — used by the `forget` tool to delete specific entries.
         """
         results = await self._retrieve(
-            profile, query, user_id=user_id,
+            profile,
+            query,
+            user_id=user_id,
             fetch_k=max(top_k * 2, 20),
             top_k=top_k,
             with_ids=with_ids,
@@ -320,7 +340,10 @@ class VertexMemoryBackend:
         scope_user = user_id or get_active_user()
         logger.info(
             "Memory: search returned %d facts (user=%r profile=%r query=%r)",
-            len(results), scope_user, profile, query[:80],
+            len(results),
+            scope_user,
+            profile,
+            query[:80],
         )
         return results
 
@@ -345,41 +368,46 @@ class VertexMemoryBackend:
             return False
         return True
 
-    async def save_session(self, profile: str, transcript: list[dict], user_id: str | None = None) -> None:
-        """Ingest transcript into Memory Bank at session close.
+    async def save_session(self, profile: str, transcript: list[dict], user_id: str | None = None) -> str:
+        """Ingest transcript into Memory Bank at session close. Returns "saved", "skipped" or "failed".
 
         Sends the full meaningful conversation (noise-filtered) for extraction.
         OpenClaw sends only the last pair per turn; we send the full session since
         Gemini Live is a continuous voice session, not a turn-by-turn chat.
         """
         if not transcript:
-            return
+            return "skipped"
         meaningful = [t for t in transcript if self._is_meaningful_turn(t)]
 
         # Apply OpenClaw total-length noise filter
         user_turns = [t for t in meaningful if t.get("role") == "user"]
-        assistant_turns = [t for t in meaningful if t.get("role") != "user"]
         user_len = sum(len(t.get("content", "")) for t in user_turns)
         total_len = sum(len(t.get("content", "")) for t in meaningful)
         if user_len < 20 or total_len < 100:
             logger.info("Memory: skipped — too short (user=%d, total=%d)", user_len, total_len)
-            return
+            return "skipped"
 
         # Truncate each turn to 4000 chars (OpenClaw pattern)
-        events = [
-            {"content": {"role": t["role"], "parts": [{"text": t["content"][:4000]}]}}
-            for t in meaningful
-        ]
-        logger.info("Memory: sending %d/%d turns to extraction (user=%d chars, total=%d chars)",
-                    len(events), len(transcript), user_len, total_len)
-        scope = self._scope(profile, user_id)
-        await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: self._generate_memories(scope, {
-                "direct_contents_source": {"events": events},
-                "revision_labels": {"source": "session"},
-            }),
+        events = [{"content": {"role": t["role"], "parts": [{"text": t["content"][:4000]}]}} for t in meaningful]
+        logger.info(
+            "Memory: sending %d/%d turns to extraction (user=%d chars, total=%d chars)",
+            len(events),
+            len(transcript),
+            user_len,
+            total_len,
         )
+        scope = self._scope(profile, user_id)
+        ok = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: self._generate_memories(
+                scope,
+                {
+                    "direct_contents_source": {"events": events},
+                    "revision_labels": {"source": "session"},
+                },
+            ),
+        )
+        return "saved" if ok else "failed"
 
     async def remember(
         self,
@@ -387,8 +415,8 @@ class VertexMemoryBackend:
         fact: str,
         user_id: str | None = None,
         lifetime_days: int | None = None,
-    ) -> None:
-        """Store an explicit fact. Awaited so the call completes.
+    ) -> bool:
+        """Store an explicit fact. Awaited so the call completes. True on success.
 
         If lifetime_days is set, the memory is tagged with a `ttl_until` label
         (UTC ISO date). The session-start sweep deletes any memory whose
@@ -401,12 +429,15 @@ class VertexMemoryBackend:
             ttl_until = (datetime.now(timezone.utc) + _td(days=lifetime_days)).strftime("%Y-%m-%d")
             labels["ttl_until"] = ttl_until
             labels["ephemeral"] = "true"
-        await asyncio.get_event_loop().run_in_executor(
+        return await asyncio.get_event_loop().run_in_executor(
             None,
-            lambda: self._generate_memories(scope, {
-                "direct_memories_source": {"direct_memories": [{"fact": fact}]},
-                "revision_labels": labels,
-            }),
+            lambda: self._generate_memories(
+                scope,
+                {
+                    "direct_memories_source": {"direct_memories": [{"fact": fact}]},
+                    "revision_labels": labels,
+                },
+            ),
         )
 
     # ── Hygiene primitives ─────────────────────────────────────────────────
@@ -418,8 +449,9 @@ class VertexMemoryBackend:
         page_size: int = 100,
         profile_wide: bool = False,
     ) -> list[dict]:
-        """Return memories for a scope (paginated). Each entry has name,
-        fact, createTime, updateTime, scope, and optional revision labels.
+        """Return memories for a scope (paginated).
+
+        Each entry has name, fact, createTime, updateTime, scope, and optional revision labels.
 
         profile_wide=True searches all users in the profile — useful for
         keyword search where a family fact may be stored under a different
@@ -439,7 +471,8 @@ class VertexMemoryBackend:
                 params += f"&pageToken={urllib.parse.quote(page_token)}"
             try:
                 resp = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda p=params: _api("GET", f"{self._base}/{self._parent}/memories{p}", None),
+                    None,
+                    lambda p=params: _api("GET", f"{self._base}/{self._parent}/memories{p}", None),
                 )
             except Exception as exc:
                 logger.warning("Memory: list failed (scope=%r): %s", scope, exc)
@@ -454,7 +487,8 @@ class VertexMemoryBackend:
         """Delete a single memory by its full resource name. Returns True on success."""
         try:
             await asyncio.get_event_loop().run_in_executor(
-                None, lambda: _api("DELETE", f"{self._base}/{memory_name}", None),
+                None,
+                lambda: _api("DELETE", f"{self._base}/{memory_name}", None),
             )
             return True
         except Exception as exc:
@@ -473,7 +507,7 @@ class VertexMemoryBackend:
         expired = []
         for m in items:
             # Latest revision's labels carry the ttl_until tag (set at remember time)
-            labels = (m.get("revisionLabels") or {})
+            labels = m.get("revisionLabels") or {}
             ttl_until = labels.get("ttl_until")
             if ttl_until and ttl_until < today:
                 expired.append(m)
@@ -487,7 +521,9 @@ class VertexMemoryBackend:
         scope_user = user_id or get_active_user()
         logger.info(
             "Memory: purged %d expired memories (user=%r profile=%r)",
-            deleted, scope_user, profile,
+            deleted,
+            scope_user,
+            profile,
         )
         return deleted
 
@@ -530,7 +566,9 @@ class VertexMemoryBackend:
             scope_user = user_id or get_active_user()
             logger.info(
                 "Memory: compact applied %d items from supplied plan (user=%r profile=%r)",
-                applied, scope_user, profile,
+                applied,
+                scope_user,
+                profile,
             )
             return {
                 "dry_run": False,
@@ -558,9 +596,7 @@ class VertexMemoryBackend:
         prompt = (
             f"You are reviewing {len(items)} stored memories for user '{scope_user}'.\n"
             "Identify cleanup opportunities. Return STRICT JSON only — no prose, no markdown.\n\n"
-            "MEMORIES:\n"
-            + "\n".join(memory_lines)
-            + "\n\n"
+            "MEMORIES:\n" + "\n".join(memory_lines) + "\n\n"
             "Return this exact shape:\n"
             "{\n"
             '  "summary": "<one-sentence overall assessment>",\n'
@@ -576,18 +612,20 @@ class VertexMemoryBackend:
             "- 'merge' deletes the listed and creates a single combined fact.\n"
             "- Index numbers must come from the [N] markers above. Do not invent.\n"
             f"- Total deletions across all actions must not exceed {max_actions}.\n"
-            "- If nothing needs cleanup, return {\"summary\":\"clean\",\"actions\":[]}.\n"
+            '- If nothing needs cleanup, return {"summary":"clean","actions":[]}.\n'
         )
 
         # Call Gemini for triage
         from google import genai as _genai
+
         api_key = os.environ.get("GEMINI_API_KEY", "").strip()
         if not api_key:
             return {"error": "GEMINI_API_KEY not set", "analyzed": len(items), "applied": 0}
         try:
             client = _genai.Client(api_key=api_key)
-            model_name = "gemini-3.1-pro-preview"
+            model_name = "gemini-4-argon"
             from google.genai import types as _genai_types
+
             resp = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: client.models.generate_content(
@@ -623,13 +661,15 @@ class VertexMemoryBackend:
                 if isinstance(i, int) and 0 <= i < len(items):
                     facts.append(items[i].get("fact", "")[:160])
                     ids.append(items[i].get("name"))
-            annotated.append({
-                "type": a.get("type"),
-                "reason": a.get("reason", ""),
-                "facts": facts,
-                "memory_ids": ids,
-                "new_fact": a.get("new_fact"),
-            })
+            annotated.append(
+                {
+                    "type": a.get("type"),
+                    "reason": a.get("reason", ""),
+                    "facts": facts,
+                    "memory_ids": ids,
+                    "new_fact": a.get("new_fact"),
+                }
+            )
 
         if dry_run:
             return {
@@ -655,7 +695,10 @@ class VertexMemoryBackend:
 
         logger.info(
             "Memory: compact applied %d/%d action-items (user=%r profile=%r)",
-            applied, sum(len(a.get("memory_ids") or []) for a in annotated), scope_user, profile,
+            applied,
+            sum(len(a.get("memory_ids") or []) for a in annotated),
+            scope_user,
+            profile,
         )
         return {
             "dry_run": False,
@@ -666,21 +709,35 @@ class VertexMemoryBackend:
             "model": model_name,
         }
 
-    def _generate_memories(self, scope: dict, source: dict) -> None:
+    def _generate_memories(self, scope: dict, source: dict) -> bool:
         try:
-            resp = _api("POST", self._url("memories:generate"), {
-                "scope": scope,
-                **source,
-            })
+            resp = _api(
+                "POST",
+                self._url("memories:generate"),
+                {
+                    "scope": scope,
+                    **source,
+                },
+            )
             op = resp.get("name", "?").split("/")[-1]
-            logger.info("Memory: generate LRO started (op=%s, user=%r profile=%r)",
-                        op, scope.get("user_id"), scope.get("profile"))
+            logger.info(
+                "Memory: generate LRO started (op=%s, user=%r profile=%r)",
+                op,
+                scope.get("user_id"),
+                scope.get("profile"),
+            )
         except Exception as exc:
-            logger.warning("Memory: generate failed (user=%r profile=%r): %s",
-                           scope.get("user_id"), scope.get("profile"), exc)
+            logger.warning(
+                "Memory: generate failed (user=%r profile=%r): %s", scope.get("user_id"), scope.get("profile"), exc
+            )
+            self.last_error = str(exc)
+            return False
+        self.last_error = None
+        return True
 
 
 # ── File-based fallback ───────────────────────────────────────────────────────
+
 
 class FileMemoryBackend:
     """Local Markdown file memory for development without GCP.
@@ -691,7 +748,9 @@ class FileMemoryBackend:
     """
 
     def __init__(self, base_dir: Path = _DEFAULT_MEMORY_DIR) -> None:
+        """Store memory files under base_dir."""
         self._base = base_dir
+        self.last_error: str | None = None
 
     def _profile_dir(self, profile: str, user_id: str | None = None) -> Path:
         u = user_id or get_active_user()
@@ -700,6 +759,7 @@ class FileMemoryBackend:
         return d
 
     async def load_context(self, profile: str, user_id: str | None = None) -> str:
+        """Return MEMORY.md and last.md contents for injection at session start."""
         parts: list[str] = []
         d = self._profile_dir(profile, user_id)
         for fname in ("MEMORY.md", "last.md"):
@@ -710,15 +770,20 @@ class FileMemoryBackend:
                     parts.append(text)
         return "\n\n".join(parts)
 
-    async def search(self, profile: str, query: str, user_id: str | None = None, top_k: int = 10, with_ids: bool = False) -> list:
+    async def search(
+        self, profile: str, query: str, user_id: str | None = None, top_k: int = 10, with_ids: bool = False
+    ) -> list:
         """Naive substring search over the file-backed MEMORY.md as a dev fallback."""
         d = self._profile_dir(profile, user_id)
         f = d / "MEMORY.md"
         if not f.exists():
             return []
         q = query.lower()
-        hits = [line.strip().lstrip("- ") for line in f.read_text(encoding="utf-8").splitlines()
-                if line.strip() and q in line.lower()]
+        hits = [
+            line.strip().lstrip("- ")
+            for line in f.read_text(encoding="utf-8").splitlines()
+            if line.strip() and q in line.lower()
+        ]
         results = hits[:top_k]
         if with_ids:
             # File backend has no real IDs — fabricate from line position so forget can work
@@ -726,21 +791,33 @@ class FileMemoryBackend:
         return results
 
     async def list_memories(self, profile: str, user_id: str | None = None, page_size: int = 100) -> list[dict]:
+        """Return no entries (the file backend has no listable store)."""
         return []
 
     async def delete_memory(self, memory_name: str) -> bool:
+        """Do nothing (the file backend can't delete individual memories)."""
         logger.info("FileMemoryBackend: delete_memory is a no-op (file backend)")
         return False
 
     async def purge_expired(self, profile: str, user_id: str | None = None) -> int:
+        """Return 0 (the file backend has no TTL sweep)."""
         return 0
 
-    async def compact_memories(self, profile: str, user_id: str | None = None, dry_run: bool = True, max_actions: int = 25) -> dict:
-        return {"analyzed": 0, "proposed": [], "applied": 0, "summary": "FileMemoryBackend does not support compaction"}
+    async def compact_memories(
+        self, profile: str, user_id: str | None = None, dry_run: bool = True, max_actions: int = 25
+    ) -> dict:
+        """Return an empty plan (the file backend doesn't support compaction)."""
+        return {
+            "analyzed": 0,
+            "proposed": [],
+            "applied": 0,
+            "summary": "FileMemoryBackend does not support compaction",
+        }
 
-    async def save_session(self, profile: str, transcript: list[dict], user_id: str | None = None) -> None:
+    async def save_session(self, profile: str, transcript: list[dict], user_id: str | None = None) -> str:
+        """Write the session transcript to last.md. Returns "saved" or "skipped"."""
         if not transcript:
-            return
+            return "skipped"
         d = self._profile_dir(profile, user_id)
         lines = [f"## Session — {date.today().isoformat()}"]
         for t in transcript:
@@ -749,8 +826,12 @@ class FileMemoryBackend:
             if content:
                 lines.append(f"**{role}:** {content}")
         (d / "last.md").write_text("\n\n".join(lines) + "\n", encoding="utf-8")
+        return "saved"
 
-    async def remember(self, profile: str, fact: str, user_id: str | None = None, lifetime_days: int | None = None) -> None:
+    async def remember(
+        self, profile: str, fact: str, user_id: str | None = None, lifetime_days: int | None = None
+    ) -> bool:
+        """Append a fact to MEMORY.md (deduplicated). Returns True."""
         d = self._profile_dir(profile, user_id)
         memory_file = d / "MEMORY.md"
         existing = memory_file.read_text(encoding="utf-8") if memory_file.exists() else ""
@@ -762,9 +843,11 @@ class FileMemoryBackend:
                 if not existing:
                     f.write("## What I remember\n")
                 f.write(f"- {fact}{suffix}\n")
+        return True
 
 
 # ── Factory ───────────────────────────────────────────────────────────────────
+
 
 def create_memory_backend() -> MemoryBackend:
     """Return VertexMemoryBackend if GCP env vars are set, else FileMemoryBackend."""
@@ -773,7 +856,8 @@ def create_memory_backend() -> MemoryBackend:
             backend = VertexMemoryBackend()
             logger.info(
                 "Memory: Vertex AI Memory Bank (project=%s, engine=%s)",
-                backend.project, backend.engine_id,
+                backend.project,
+                backend.engine_id,
             )
             return backend
         except Exception as exc:

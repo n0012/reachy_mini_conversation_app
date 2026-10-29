@@ -6,12 +6,13 @@ configuration. Memory facts override these defaults as conversations accumulate.
 """
 
 from __future__ import annotations
-
 import json
 import logging
-import urllib.request
 import urllib.error
+import urllib.request
 from datetime import datetime
+
+
 try:
     from zoneinfo import ZoneInfo
 except ImportError:
@@ -33,11 +34,10 @@ def get_location_context() -> str:
         with urllib.request.urlopen("https://ipinfo.io/json", timeout=5) as resp:
             data = json.loads(resp.read())
 
-        city     = data.get("city", "")
-        region   = data.get("region", "")
-        country  = data.get("country", "")
+        city = data.get("city", "")
+        region = data.get("region", "")
+        country = data.get("country", "")
         timezone = data.get("timezone", "")
-        org      = data.get("org", "")
 
         if not city and not region:
             logger.warning("Location: lookup returned no city/region")
@@ -58,7 +58,10 @@ def get_location_context() -> str:
 
         logger.warning(
             "Location: inferred %s (tz=%s, units=%s, local=%s)",
-            location_str, timezone, temp_unit, local_time_str,
+            location_str,
+            timezone,
+            temp_unit,
+            local_time_str,
         )
 
         lines = [

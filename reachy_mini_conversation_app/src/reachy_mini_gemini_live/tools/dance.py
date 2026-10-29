@@ -1,6 +1,8 @@
+import asyncio
 import logging
 from typing import Any, Dict
 
+from reachy_mini_gemini_live.robot_health import motors_off_error
 from reachy_mini_gemini_live.tools.core_tools import Tool, ToolDependencies
 
 
@@ -68,6 +70,10 @@ class Dance(Tool):
         repeat = int(kwargs.get("repeat", 1))
 
         logger.info("Tool call: dance move=%s repeat=%d", move_name, repeat)
+
+        motors_off = await asyncio.to_thread(motors_off_error, deps.reachy_mini)
+        if motors_off:
+            return motors_off
 
         if not move_name or move_name == "random":
             import random
