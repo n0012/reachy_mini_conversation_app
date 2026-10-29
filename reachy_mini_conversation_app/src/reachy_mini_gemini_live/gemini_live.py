@@ -215,6 +215,11 @@ class GeminiLiveHandler(AsyncStreamHandler):
         self._turn_count: int = 0
         self._memory_enabled: bool = False  # set per-session from profile's memory.txt
         self.deps.memory_backend = self._memory
+        # One MCP pool per profile, reused across sessions: registered MCP tools keep a
+        # reference to the pool they were created with, so a fresh pool per session
+        # would leave them calling a stale one and leak its connections.
+        self._mcp_pool: MCPClientPool | None = None
+        self._mcp_pool_profile: str | None = None
 
     def copy(self) -> "GeminiLiveHandler":
         """Create a copy of the handler."""
@@ -352,6 +357,17 @@ class GeminiLiveHandler(AsyncStreamHandler):
         if not notes:
             return ""
         return "<session_notes>\n" + "\n".join(f"- {n}" for n in notes) + "\n</session_notes>"
+
+    async def _mcp_pool_for(self, profile: str) -> MCPClientPool:
+        """Return the MCP pool for this profile, closing the previous one on a profile switch."""
+        if self._mcp_pool is not None and self._mcp_pool_profile == profile:
+            return self._mcp_pool
+        if self._mcp_pool is not None:
+            deregister_mcp_tools(self._mcp_pool)
+            await self._mcp_pool.close()
+        self._mcp_pool = MCPClientPool.from_profile(profile, config.PROFILES_DIRECTORY)
+        self._mcp_pool_profile = profile
+        return self._mcp_pool
 
     async def _mid_session_memory_save(self) -> None:
         """Fire-and-forget memory save triggered every N turns for long sessions."""
@@ -904,7 +920,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
             logger.info("Memory: disabled for profile=%r (no memory.txt with enabled=true)", profile)
 
         # Load memory, location, and MCP tools concurrently
-        mcp_pool = MCPClientPool.from_profile(profile, config.PROFILES_DIRECTORY)
+        mcp_pool = await self._mcp_pool_for(profile)
 
         async def _no_memory() -> str:
             return ""
@@ -1417,10 +1433,11 @@ class GeminiLiveHandler(AsyncStreamHandler):
             logger.warning("Memory: no transcript captured — nothing to save")
 
         # Clean up MCP connections and deregister tools
-        if hasattr(self, "_mcp_pool") and self._mcp_pool:
+        if self._mcp_pool is not None:
             deregister_mcp_tools(self._mcp_pool)
             await self._mcp_pool.close()
             self._mcp_pool = None
+            self._mcp_pool_profile = None
 
         # Clear remaining items in the output queue
         while not self.output_queue.empty():

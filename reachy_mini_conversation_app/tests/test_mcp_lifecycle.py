@@ -73,3 +73,47 @@ async def test_failed_server_reports_no_tools(tmp_path: Path) -> None:
     assert await pool.connect_all() == []
     assert "not connected" in await pool.call_tool("bad", "x", {})
     await pool.close()
+
+
+@pytest.mark.asyncio
+async def test_handler_reuses_pool_across_sessions_and_closes_on_profile_switch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+    from unittest.mock import MagicMock
+
+    from reachy_mini_gemini_live import gemini_live
+    from reachy_mini_gemini_live.gemini_live import GeminiLiveHandler
+    from reachy_mini_gemini_live.tools.core_tools import ToolDependencies
+
+    script = tmp_path / "echo_server.py"
+    script.write_text(SERVER)
+    for profile in ("yuki", "other"):
+        (tmp_path / profile).mkdir()
+        (tmp_path / profile / "mcp_servers.json").write_text(
+            json.dumps([{"name": "echo", "transport": "stdio", "command": [sys.executable, str(script)]}])
+        )
+    monkeypatch.setattr(gemini_live.config, "PROFILES_DIRECTORY", tmp_path)
+    handler = GeminiLiveHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+    before = _children()
+
+    # Two sessions on the same profile share one pool and one server process.
+    first = await handler._mcp_pool_for("yuki")
+    # Use the handler's own references: other tests reload the tool modules.
+    gemini_live.register_mcp_tools(first, await first.connect_all())
+    registry = gemini_live.deregister_mcp_tools.__globals__["ALL_TOOLS"]
+    second = await handler._mcp_pool_for("yuki")
+    await second.connect_all()
+    assert second is first
+    assert len(_children() - before) == 1
+
+    # Switching profile closes the old pool and drops its tools from the registry.
+    third = await handler._mcp_pool_for("other")
+    assert third is not first
+    assert not any(getattr(t, "_pool", None) is first for t in registry.values())
+    for _ in range(50):
+        if not (_children() - before):
+            break
+        await asyncio.sleep(0.1)
+    assert not (_children() - before), "old profile's server should exit"
+    await third.close()
