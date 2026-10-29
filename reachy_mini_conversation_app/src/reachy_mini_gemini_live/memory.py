@@ -198,6 +198,51 @@ def _api_read(method: str, url: str, body: dict | None = None) -> dict:
         return _api(method, url, body, timeout=READ_TIMEOUT_S)
 
 
+RECENT_DAYS = 2.0  # memories newer than this are listed first as "recent conversations"
+
+
+def _ago(age_days: float | None) -> str:
+    """Relative age, e.g. "14 hours ago", "3 days ago", "5 months ago" (no timezone needed)."""
+    if age_days is None:
+        return "date unknown"
+    if age_days < 1:
+        hours = max(1, round(age_days * 24))
+        return f"{hours} hour{'s' if hours != 1 else ''} ago"
+    # Days up to two weeks, then weeks, months, years.
+    for unit, size, start in (("year", 365.0, 365.0), ("month", 30.0, 30.0), ("week", 7.0, 14.0), ("day", 1.0, 1.0)):
+        if age_days >= start:
+            n = int(age_days // size)
+            return f"{n} {unit}{'s' if n != 1 else ''} ago"
+    return "1 day ago"
+
+
+def _format_dated_context(facts: list[dict]) -> str:
+    """Session-start memory block with each fact's age, most recent conversations first.
+
+    Without ages the model can't tell last night from last spring and presents old facts as
+    "what we talked about yesterday".
+    """
+    recent = [f for f in facts if f.get("age_days") is not None and f["age_days"] < RECENT_DAYS]
+    older = [f for f in facts if f not in recent]
+    recent.sort(key=lambda f: f["age_days"])
+    lines = ["<vertex_memory_bank>"]
+    lines.append(
+        "Memories from prior sessions, each with how long ago it was saved. When asked what you "
+        "talked about recently, use only the recent ones; if none fit, say you're not sure rather "
+        "than presenting an older memory as recent."
+    )
+    n = 0
+    for heading, group in (("From recent conversations:", recent), ("Older memories:", older)):
+        if not group:
+            continue
+        lines.append(heading)
+        for f in group:
+            n += 1
+            lines.append(f"{n}. {f['fact']} ({_ago(f.get('age_days'))})")
+    lines.append("</vertex_memory_bank>")
+    return "\n".join(lines)
+
+
 class VertexMemoryBackend:
     """Memory backed by Vertex AI Memory Bank REST API.
 
@@ -336,7 +381,7 @@ class VertexMemoryBackend:
 
     async def load_context(self, profile: str, user_id: str | None = None) -> str:
         """Retrieve relevant memories at session start and format as bullet list for system prompt injection."""
-        facts = await self._retrieve(profile, MEMORY_SEARCH_QUERY, user_id=user_id)
+        facts = await self._retrieve(profile, MEMORY_SEARCH_QUERY, user_id=user_id, with_ids=True)
         scope_user = user_id or get_active_user()
         key = (profile, scope_user)
         if self.last_error is not None and key in self._context_cache:
@@ -348,10 +393,7 @@ class VertexMemoryBackend:
             context = ""
         else:
             logger.info("Memory: injecting %d facts (user=%r profile=%r)", len(facts), scope_user, profile)
-            numbered = "\n".join(f"{i + 1}. {f}" for i, f in enumerate(facts))
-            context = (
-                f"<vertex_memory_bank>\nRelevant memories from prior sessions:\n{numbered}\n</vertex_memory_bank>"
-            )
+            context = _format_dated_context(facts)
         if self.last_error is None:
             self._context_cache[key] = context
         return context

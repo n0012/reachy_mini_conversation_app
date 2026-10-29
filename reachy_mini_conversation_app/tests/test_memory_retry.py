@@ -73,3 +73,22 @@ async def test_load_context_falls_back_to_last_good_context(vertex, monkeypatch)
     _api_seq(monkeypatch, TimeoutError("t1"), TimeoutError("t2"))
     assert await vertex.load_context("default", user_id="someone-else") == ""
     assert vertex.last_error == "t2"
+
+
+@pytest.mark.asyncio
+async def test_load_context_dates_memories_and_lists_recent_first(vertex, monkeypatch) -> None:
+    from datetime import datetime, timezone, timedelta
+
+    def at(days: float) -> str:
+        return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat().replace("+00:00", "Z")
+
+    old = {"distance": 0.1, "memory": {"fact": "Works in tech.", "name": "m/1", "createTime": at(170)}}
+    new = {"distance": 0.3, "memory": {"fact": "Expecting a new bed.", "name": "m/2", "createTime": at(0.5)}}
+    _api_seq(monkeypatch, {"retrievedMemories": [old, new]})
+
+    ctx = await vertex.load_context("default", user_id="u1")
+
+    assert ctx.index("From recent conversations:") < ctx.index("Expecting a new bed. (12 hours ago)")
+    assert (
+        ctx.index("Expecting a new bed.") < ctx.index("Older memories:") < ctx.index("Works in tech. (5 months ago)")
+    )
