@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 import json
 import math
+import time
 import asyncio
 import logging
 import urllib.error
@@ -154,7 +155,14 @@ def _get_token() -> str:
     return _credentials.token  # type: ignore[return-value]
 
 
-def _api(method: str, url: str, body: dict | None = None) -> dict:
+# Reads get one retry; generate gets a longer timeout and no retry (a retried
+# generate can store the same memories twice).
+READ_TIMEOUT_S = 12.0
+GENERATE_TIMEOUT_S = 45.0
+_RETRYABLE_HTTP = {429, 500, 502, 503, 504}
+
+
+def _api(method: str, url: str, body: dict | None = None, timeout: float = 15.0) -> dict:
     token = _get_token()
     data = json.dumps(body).encode() if body else None
     req = urllib.request.Request(
@@ -166,8 +174,28 @@ def _api(method: str, url: str, body: dict | None = None) -> dict:
             "Content-Type": "application/json",
         },
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read())
+
+
+def _is_transient(exc: Exception) -> bool:
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code in _RETRYABLE_HTTP
+    if isinstance(exc, urllib.error.URLError):
+        return isinstance(exc.reason, OSError)
+    return isinstance(exc, (TimeoutError, ConnectionError))
+
+
+def _api_read(method: str, url: str, body: dict | None = None) -> dict:
+    """Idempotent call (GET or :retrieve): retry once on a timeout or transient server error."""
+    try:
+        return _api(method, url, body, timeout=READ_TIMEOUT_S)
+    except Exception as exc:
+        if not _is_transient(exc):
+            raise
+        logger.info("Memory: %s failed transiently (%s), retrying once", url.rsplit("/", 1)[-1][:40], exc)
+        time.sleep(1.0)
+        return _api(method, url, body, timeout=READ_TIMEOUT_S)
 
 
 class VertexMemoryBackend:
@@ -189,6 +217,9 @@ class VertexMemoryBackend:
         # Last Memory Bank failure (None = last call succeeded). Lets the session tell
         # the user memory is down instead of silently forgetting them.
         self.last_error: str | None = None
+        # Last good session-start context per (profile, user), served when Memory Bank
+        # is unreachable so a blip doesn't make the robot forget who it's talking to.
+        self._context_cache: dict[tuple[str, str], str] = {}
 
     def _url(self, path: str) -> str:
         return f"{self._base}/{self._parent}/{path}"
@@ -220,7 +251,7 @@ class VertexMemoryBackend:
         try:
             resp = await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: _api(
+                lambda: _api_read(
                     "POST",
                     self._url("memories:retrieve"),
                     {
@@ -307,12 +338,23 @@ class VertexMemoryBackend:
         """Retrieve relevant memories at session start and format as bullet list for system prompt injection."""
         facts = await self._retrieve(profile, MEMORY_SEARCH_QUERY, user_id=user_id)
         scope_user = user_id or get_active_user()
+        key = (profile, scope_user)
+        if self.last_error is not None and key in self._context_cache:
+            logger.warning("Memory: retrieve failed, using cached context (user=%r profile=%r)", scope_user, profile)
+            self.last_error = None
+            return self._context_cache[key]
         if not facts:
             logger.info("Memory: no stored memories for user=%r profile=%r", scope_user, profile)
-            return ""
-        logger.info("Memory: injecting %d facts (user=%r profile=%r)", len(facts), scope_user, profile)
-        numbered = "\n".join(f"{i + 1}. {f}" for i, f in enumerate(facts))
-        return f"<vertex_memory_bank>\nRelevant memories from prior sessions:\n{numbered}\n</vertex_memory_bank>"
+            context = ""
+        else:
+            logger.info("Memory: injecting %d facts (user=%r profile=%r)", len(facts), scope_user, profile)
+            numbered = "\n".join(f"{i + 1}. {f}" for i, f in enumerate(facts))
+            context = (
+                f"<vertex_memory_bank>\nRelevant memories from prior sessions:\n{numbered}\n</vertex_memory_bank>"
+            )
+        if self.last_error is None:
+            self._context_cache[key] = context
+        return context
 
     async def search(
         self,
@@ -472,7 +514,7 @@ class VertexMemoryBackend:
             try:
                 resp = await asyncio.get_event_loop().run_in_executor(
                     None,
-                    lambda p=params: _api("GET", f"{self._base}/{self._parent}/memories{p}", None),
+                    lambda p=params: _api_read("GET", f"{self._base}/{self._parent}/memories{p}", None),
                 )
             except Exception as exc:
                 logger.warning("Memory: list failed (scope=%r): %s", scope, exc)
@@ -718,6 +760,7 @@ class VertexMemoryBackend:
                     "scope": scope,
                     **source,
                 },
+                timeout=GENERATE_TIMEOUT_S,
             )
             op = resp.get("name", "?").split("/")[-1]
             logger.info(
