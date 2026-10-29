@@ -20,13 +20,17 @@ def vertex(monkeypatch: pytest.MonkeyPatch) -> VertexMemoryBackend:
     return VertexMemoryBackend()
 
 
-def _api_seq(monkeypatch: pytest.MonkeyPatch, *outcomes: object) -> list[dict]:
+def _api_seq(monkeypatch: pytest.MonkeyPatch, *outcomes: object, listed: object = None) -> list[dict]:
+    """Serve ``outcomes`` in order to :retrieve/generate calls; memory list GETs get ``listed``."""
     calls: list[dict] = []
     queue = list(outcomes)
 
     def fake(method: str, url: str, body: dict | None = None, timeout: float = 15.0) -> dict:
         calls.append({"method": method, "url": url, "timeout": timeout})
-        out = queue.pop(0)
+        if method == "GET" and "/memories?" in url:
+            out = listed if listed is not None else {"memories": []}
+        else:
+            out = queue.pop(0)
         if isinstance(out, Exception):
             raise out
         return out
@@ -75,20 +79,39 @@ async def test_load_context_falls_back_to_last_good_context(vertex, monkeypatch)
     assert vertex.last_error == "t2"
 
 
-@pytest.mark.asyncio
-async def test_load_context_dates_memories_and_lists_recent_first(vertex, monkeypatch) -> None:
+def _at(days: float) -> str:
     from datetime import datetime, timezone, timedelta
 
-    def at(days: float) -> str:
-        return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat().replace("+00:00", "Z")
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat().replace("+00:00", "Z")
 
-    old = {"distance": 0.1, "memory": {"fact": "Works in tech.", "name": "m/1", "createTime": at(170)}}
-    new = {"distance": 0.3, "memory": {"fact": "Started learning chess.", "name": "m/2", "createTime": at(0.5)}}
-    _api_seq(monkeypatch, {"retrievedMemories": [old, new]})
+
+@pytest.mark.asyncio
+async def test_load_context_dates_memories_and_lists_recent_first(vertex, monkeypatch) -> None:
+    old = {"fact": "Works in tech.", "name": "m/1", "createTime": _at(170)}
+    new = {"fact": "Started learning chess.", "name": "m/2", "createTime": _at(0.5)}
+    # Similarity search only surfaces the old fact; the new one must still come in, by date.
+    _api_seq(monkeypatch, {"retrievedMemories": [{"distance": 0.1, "memory": old}]}, listed={"memories": [old, new]})
 
     ctx = await vertex.load_context("default", user_id="u1")
 
-    assert ctx.index("From recent conversations:") < ctx.index("Started learning chess. (12 hours ago)")
-    assert (
-        ctx.index("Started learning chess.") < ctx.index("Older memories:") < ctx.index("Works in tech. (5 months ago)")
-    )
+    recent = ctx.index("From recent conversations")
+    background = ctx.index("Background")
+    assert recent < ctx.index("Started learning chess. (12 hours ago)") < background
+    assert background < ctx.index("Works in tech. (5 months ago)")
+
+
+@pytest.mark.asyncio
+async def test_load_context_caps_older_and_does_not_repeat_recent(vertex, monkeypatch) -> None:
+    olds = [{"fact": f"Old fact {i}.", "name": f"m/o{i}", "createTime": _at(40 + i)} for i in range(12)]
+    recent = [
+        {"fact": "Had pancakes yesterday.", "name": "m/r1", "createTime": _at(1.2)},
+        {"fact": "Watched a film tonight.", "name": "m/r2", "createTime": _at(0.1)},
+    ]
+    retrieved = [{"distance": 0.1, "memory": m} for m in [recent[0], *olds]]
+    _api_seq(monkeypatch, {"retrievedMemories": retrieved}, listed={"memories": olds + recent})
+
+    ctx = await vertex.load_context("default", user_id="u1")
+
+    assert ctx.count("Had pancakes yesterday.") == 1
+    assert ctx.index("Watched a film tonight.") < ctx.index("Had pancakes yesterday.")  # newest first
+    assert sum(f"Old fact {i}." in ctx for i in range(12)) == memory_mod.OLDER_MAX

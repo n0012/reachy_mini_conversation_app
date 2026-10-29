@@ -198,7 +198,21 @@ def _api_read(method: str, url: str, body: dict | None = None) -> dict:
         return _api(method, url, body, timeout=READ_TIMEOUT_S)
 
 
-RECENT_DAYS = 2.0  # memories newer than this are listed first as "recent conversations"
+RECENT_DAYS = 3.0  # memories saved within this many days are "recent conversations"
+RECENT_MAX = 12  # newest recent memories shown at session start
+OLDER_MAX = int(os.getenv("REACHY_MINI_OLDER_MEMORIES", "8"))  # most relevant older memories shown
+
+
+def _age_days_of(memory: dict) -> float | None:
+    """Days since a memory was created (falls back to its update time)."""
+    ts = memory.get("createTime") or memory.get("updateTime")
+    if not ts:
+        return None
+    try:
+        created = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return max(0.0, (datetime.now(timezone.utc) - created).total_seconds() / 86400.0)
 
 
 def _ago(age_days: float | None) -> str:
@@ -216,23 +230,24 @@ def _ago(age_days: float | None) -> str:
     return "1 day ago"
 
 
-def _format_dated_context(facts: list[dict]) -> str:
-    """Session-start memory block with each fact's age, most recent conversations first.
+def _format_dated_context(recent: list[dict], older: list[dict]) -> str:
+    """Session-start memory block: recent conversations first, a few older facts as background.
 
-    Without ages the model can't tell last night from last spring and presents old facts as
-    "what we talked about yesterday".
+    One fixed similarity query used to surface the same old facts every session, undated, so
+    the robot kept bringing them up and couldn't tell last night from last spring.
     """
-    recent = [f for f in facts if f.get("age_days") is not None and f["age_days"] < RECENT_DAYS]
-    older = [f for f in facts if f not in recent]
-    recent.sort(key=lambda f: f["age_days"])
-    lines = ["<vertex_memory_bank>"]
-    lines.append(
-        "Memories from prior sessions, each with how long ago it was saved. When asked what you "
-        "talked about recently, use only the recent ones; if none fit, say you're not sure rather "
-        "than presenting an older memory as recent."
-    )
+    lines = [
+        "<vertex_memory_bank>",
+        "Memories from prior sessions, each with how long ago it was saved (the current date and "
+        "time are given above). In small talk, draw on recent conversations. Don't volunteer "
+        "background memories unless the person brings up that topic, and never present an older "
+        "memory as something recent; if you're not sure when something happened, say so.",
+    ]
     n = 0
-    for heading, group in (("From recent conversations:", recent), ("Older memories:", older)):
+    for heading, group in (
+        ("From recent conversations (newest first):", recent),
+        ("Background — older memories, only if relevant:", older),
+    ):
         if not group:
             continue
         lines.append(heading)
@@ -380,20 +395,42 @@ class VertexMemoryBackend:
         return sorted(memories, key=_score, reverse=True)
 
     async def load_context(self, profile: str, user_id: str | None = None) -> str:
-        """Retrieve relevant memories at session start and format as bullet list for system prompt injection."""
-        facts = await self._retrieve(profile, MEMORY_SEARCH_QUERY, user_id=user_id, with_ids=True)
+        """Recent memories (by date) plus the most relevant older ones, formatted for the system prompt."""
         scope_user = user_id or get_active_user()
+        relevant, listed = await asyncio.gather(
+            self._retrieve(profile, MEMORY_SEARCH_QUERY, user_id=user_id, with_ids=True),
+            self.list_memories(profile, user_id=scope_user),
+        )
         key = (profile, scope_user)
         if self.last_error is not None and key in self._context_cache:
             logger.warning("Memory: retrieve failed, using cached context (user=%r profile=%r)", scope_user, profile)
             self.last_error = None
             return self._context_cache[key]
-        if not facts:
+        recent = []
+        for m in listed:
+            age = _age_days_of(m)
+            if m.get("fact") and m.get("name") and age is not None and age < RECENT_DAYS:
+                recent.append({"memory_id": m["name"], "fact": m["fact"], "age_days": age})
+        recent.sort(key=lambda f: f["age_days"])
+        recent = recent[:RECENT_MAX]
+        seen = {f["memory_id"] for f in recent}
+        older = [
+            f
+            for f in relevant
+            if f["memory_id"] not in seen and (f.get("age_days") is None or f["age_days"] >= RECENT_DAYS)
+        ][:OLDER_MAX]
+        if not recent and not older:
             logger.info("Memory: no stored memories for user=%r profile=%r", scope_user, profile)
             context = ""
         else:
-            logger.info("Memory: injecting %d facts (user=%r profile=%r)", len(facts), scope_user, profile)
-            context = _format_dated_context(facts)
+            logger.info(
+                "Memory: injecting %d recent + %d older facts (user=%r profile=%r)",
+                len(recent),
+                len(older),
+                scope_user,
+                profile,
+            )
+            context = _format_dated_context(recent, older)
         if self.last_error is None:
             self._context_cache[key] = context
         return context
