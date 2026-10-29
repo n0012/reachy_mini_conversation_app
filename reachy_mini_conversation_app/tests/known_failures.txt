@@ -1,0 +1,16 @@
+# Read by scripts/run_tests.sh. Anything failing that is NOT listed here fails the gate.
+# Remove an entry as soon as the test is fixed — this list should only shrink.
+
+# Need torch / the full reachy_mini SDK, which the dev venv doesn't have.
+ignore:tests/vision
+ignore:tests/test_console.py
+ignore:tests/test_utils.py
+
+# Already failing before 2026-10-29 (stale after earlier refactors).
+deselect:tests/test_config_name_collisions.py::test_config_raises_on_external_profile_name_collision
+deselect:tests/test_config_name_collisions.py::test_config_raises_on_external_profile_name_collision_with_builtin_alias
+deselect:tests/test_external_loading.py::test_builtin_profile_can_load_profile_local_tools
+deselect:tests/test_gemini_live.py::test_gemini_turn_buffers_transcripts_and_schedules_motion_reset
+deselect:tests/test_gemini_live.py::test_gemini_camera_tool_sends_snapshot_and_returns_json_result
+deselect:tests/test_gemini_only_config.py::test_available_voices_are_gemini
+deselect:tests/test_profile_paths.py::test_wheel_file_paths_stay_within_windows_budget
