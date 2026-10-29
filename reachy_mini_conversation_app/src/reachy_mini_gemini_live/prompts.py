@@ -13,7 +13,6 @@ PROMPTS_LIBRARY_DIRECTORY = Path(__file__).parent / "prompts"
 INSTRUCTIONS_FILENAME = "instructions.txt"
 VOICE_FILENAME = "voice.txt"
 GROUNDING_FILENAME = "grounding.txt"
-VOCABULARY_FILENAME = "vocabulary.txt"
 
 
 def _expand_prompt_includes(content: str) -> str:
@@ -131,24 +130,6 @@ def get_session_voice(default: str | None = None) -> str:
     except Exception:
         pass
     return fallback
-
-
-def get_session_vocabulary() -> list[str]:
-    """Return names/terms from the profile's vocabulary.txt (one per line) to bias speech recognition.
-
-    Kept per profile so household names live with the private profile, not in the repo.
-    """
-    profile = config.REACHY_MINI_CUSTOM_PROFILE
-    if not profile:
-        return []
-    try:
-        vocab_file = config.PROFILES_DIRECTORY / profile / VOCABULARY_FILENAME
-        if vocab_file.exists():
-            lines = vocab_file.read_text(encoding="utf-8").splitlines()
-            return [ln.strip() for ln in lines if ln.strip() and not ln.lstrip().startswith("#")]
-    except Exception:
-        pass
-    return []
 
 
 def get_session_grounding() -> bool:

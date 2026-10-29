@@ -9,7 +9,6 @@ Audio formats (per Gemini Live API spec):
 """
 
 import os
-import re
 import json
 import stat
 import uuid
@@ -29,12 +28,7 @@ from scipy.signal import resample
 from reachy_mini_gemini_live.config import config
 from reachy_mini_gemini_live.memory import DEFAULT_USER_ID, get_active_user, create_memory_backend
 from reachy_mini_gemini_live.voices import resolve_voice
-from reachy_mini_gemini_live.prompts import (
-    get_session_voice,
-    get_session_grounding,
-    get_session_vocabulary,
-    get_session_instructions,
-)
+from reachy_mini_gemini_live.prompts import get_session_voice, get_session_grounding, get_session_instructions
 from reachy_mini_gemini_live.location import get_location_context
 from reachy_mini_gemini_live.streaming import AdditionalOutputs, AsyncStreamHandler, wait_for_item, audio_to_int16
 from reachy_mini_gemini_live.robot_health import CERT_WARN_DAYS, wif_cert_days_left
@@ -57,10 +51,6 @@ logger = logging.getLogger(__name__)
 GEMINI_INPUT_SAMPLE_RATE: Final[int] = 16000
 GEMINI_OUTPUT_SAMPLE_RATE: Final[int] = 24000
 _MID_SESSION_SAVE_EVERY_N_TURNS: Final[int] = 20
-DUPLICATE_TOOL_CALL_WINDOW_S: Final[float] = 3.0
-# Tools whose arguments are just the model's phrasing of one action (the camera's
-# "question"), so two calls in the window are duplicates even with different text.
-DEDUPE_BY_NAME_TOOLS: Final[frozenset[str]] = frozenset({"camera"})
 
 
 def _profile_memory_enabled(profile: str) -> bool:
@@ -131,25 +121,6 @@ def _convert_schema_types(schema: Any) -> Any:
     return result
 
 
-def _env_flag(name: str, default: bool) -> bool:
-    """Read a boolean env var ("1/true/yes/on" or "0/false/no/off")."""
-    value = os.environ.get(name, "").strip().lower()
-    if not value:
-        return default
-    return value in {"1", "true", "yes", "on"}
-
-
-# When the model decides not to answer it sometimes writes a placeholder instead of
-# staying silent: "---", "・", invisible tag characters, "<!-- No response required -->",
-# "(No response; wait for the user to speak.)".
-_PLACEHOLDER_RE = re.compile(r"^\s*(<!--.*-->|\(\s*(no response|no reply|silence|silent)[^)]*\))\s*$", re.I | re.S)
-
-
-def _is_placeholder(text: str) -> bool:
-    """Return True if an assistant transcript is a non-answer rather than real speech."""
-    return not any(c.isalnum() for c in text) or bool(_PLACEHOLDER_RE.match(text))
-
-
 def _resolve_gemini_voice(profile_voice: str) -> str:
     """Return a valid Gemini voice name, falling back to the default."""
     return resolve_voice(profile_voice)
@@ -178,12 +149,6 @@ class GeminiLiveHandler(AsyncStreamHandler):
 
         self.last_activity_time = asyncio.get_event_loop().time()
         self.start_time = asyncio.get_event_loop().time()
-        self._idle_nudges = _env_flag("REACHY_MINI_IDLE_NUDGES", False)
-        self._mcp_pool: MCPClientPool | None = None
-        self._mcp_pool_profile: str | None = None
-        self._recent_tool_calls: dict[tuple[str, str], float] = {}
-        # Set by _restart_session: the next session continues the same conversation.
-        self._continuing = False
         self.is_idle_tool_call = False
 
         # Track API key source (env vs textbox)
@@ -275,9 +240,6 @@ class GeminiLiveHandler(AsyncStreamHandler):
             if s.startswith('"') and any(k in s for k in ('"fact":', '"memory_id":', '"status":', '"matches":')):
                 logger.debug("Dropping JSON fragment echo: %.80s", s)
                 return
-            if _is_placeholder(s):
-                logger.debug("Dropping placeholder non-answer: %r", s[:80])
-                return
 
         self._session_transcript.append({"role": role, "content": transcript})
         await self.output_queue.put(AdditionalOutputs({"role": role, "content": transcript}))
@@ -343,20 +305,10 @@ class GeminiLiveHandler(AsyncStreamHandler):
             logger.info("Memory: %s save %s (user=%r profile=%r)", reason, result, user_id, profile)
         return result
 
-    async def _session_notes(self, user_id: str, memory_error: str | None, continuing: bool = False) -> str:
+    async def _session_notes(self, user_id: str, memory_error: str | None) -> str:
         """Session-start guidance: who we're probably talking to, and whether memory works."""
         notes: list[str] = []
-        if continuing:
-            notes.append(
-                f"Your connection was just reset in the middle of a conversation with {user_id}. "
-                "Do not greet them or introduce yourself again, and don't mention the reset. "
-                "Stay quiet until they speak, then carry on where you left off."
-            )
-            recent = [t for t in self._session_transcript if t.get("role") in ("user", "assistant")][-6:]
-            if recent:
-                lines = "; ".join(f"{t['role']}: {str(t.get('content', ''))[:200]}" for t in recent)
-                notes.append(f"The last few turns were — {lines}")
-        if self._memory_enabled and not continuing:
+        if self._memory_enabled:
             if user_id == DEFAULT_USER_ID:
                 notes.append(
                     "You don't know who you're talking to yet. Early on, ask their name "
@@ -461,7 +413,6 @@ class GeminiLiveHandler(AsyncStreamHandler):
         logger.info("Entering sleep mode")
         self._sleeping = True
         self._resume_handle = None
-        self._continuing = False
         await self.output_queue.put(AdditionalOutputs({"role": "memory", "content": "💤 sleeping"}))
         # Close session first — teardown resets to neutral position
         if self.session:
@@ -578,8 +529,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
             raise RuntimeError("GEMINI_API_KEY not set. Complete setup at the web UI.")
         self.client = genai.Client(
             api_key=api_key,
-            # proactive_audio is only accepted on v1alpha (verified against gemini-3.8-live).
-            http_options={"api_version": "v1alpha" if _env_flag("REACHY_MINI_PROACTIVE_AUDIO", True) else "v1beta"},
+            http_options={"api_version": "v1beta"},
         )
 
         while not self._stop_event.is_set():
@@ -612,21 +562,9 @@ class GeminiLiveHandler(AsyncStreamHandler):
                 except Exception:
                     pass
 
-    async def _mcp_pool_for(self, profile: str) -> MCPClientPool:
-        """Reuse the profile's MCP connections across sessions; rebuild only when the profile changes."""
-        if self._mcp_pool is not None and self._mcp_pool_profile == profile:
-            return self._mcp_pool
-        if self._mcp_pool is not None:
-            deregister_mcp_tools(self._mcp_pool)
-            await self._mcp_pool.close()
-        self._mcp_pool = MCPClientPool.from_profile(profile, config.PROFILES_DIRECTORY)
-        self._mcp_pool_profile = profile
-        return self._mcp_pool
-
     async def _restart_session(self) -> None:
-        """Force-close the current session and start a fresh one that continues the conversation."""
+        """Force-close the current session and start a fresh one."""
         self._resume_handle = None
-        self._continuing = True
         try:
             if self.session is not None:
                 try:
@@ -662,8 +600,6 @@ class GeminiLiveHandler(AsyncStreamHandler):
         if memory_context:
             instructions = f"{instructions}\n\n{memory_context}"
         voice = _resolve_gemini_voice(self._voice_override or get_session_voice())
-        language = os.environ.get("REACHY_MINI_LANGUAGE", "en-US").strip()
-        language = None if language.lower() in {"", "auto"} else language
 
         # Convert internal tool specs to Gemini function declarations
         tool_specs = get_tool_specs()
@@ -693,49 +629,22 @@ class GeminiLiveHandler(AsyncStreamHandler):
                         voice_name=voice,
                     ),
                 ),
-                language_code=language,
             ),
             tools=tools_config,  # type: ignore[arg-type]
-            input_audio_transcription=types.AudioTranscriptionConfig(
-                # Pinning the language stops TV/background speech from being transcribed
-                # (and answered) as German, Korean, Spanish...
-                language_codes=[language] if language else None,
-                custom_vocabulary=get_session_vocabulary() or None,
-            ),
+            input_audio_transcription=types.AudioTranscriptionConfig(),
             output_audio_transcription=types.AudioTranscriptionConfig(),
             context_window_compression=types.ContextWindowCompressionConfig(
                 trigger_tokens=104857,
                 sliding_window=types.SlidingWindow(target_tokens=52428),
             ),
             session_resumption=types.SessionResumptionConfig(handle=self._resume_handle),
-            realtime_input_config=types.RealtimeInputConfig(
-                automatic_activity_detection=types.AutomaticActivityDetection(
-                    # Low start sensitivity ignores more background sound; a longer silence
-                    # window stops cutting people off mid-thought.
-                    start_of_speech_sensitivity=(
-                        types.StartSensitivity.START_SENSITIVITY_LOW
-                        if os.environ.get("REACHY_MINI_VAD_START_SENSITIVITY", "low").strip().lower() == "low"
-                        else types.StartSensitivity.START_SENSITIVITY_HIGH
-                    ),
-                    silence_duration_ms=int(os.environ.get("REACHY_MINI_VAD_SILENCE_MS", "800")),
-                ),
-            ),
-            # Let the model ignore speech that isn't addressed to it (TV, side conversations).
-            proactivity=(
-                types.ProactivityConfig(proactive_audio=True)
-                if _env_flag("REACHY_MINI_PROACTIVE_AUDIO", True)
-                else None
-            ),
         )
 
         logger.info(
-            "Gemini Live config: model=%r voice=%r tools=%d language=%s vocab=%d proactive=%s",
+            "Gemini Live config: model=%r voice=%r tools=%d",
             config.MODEL_NAME,
             voice,
             len(function_declarations),
-            language or "auto",
-            len(live_config.input_audio_transcription.custom_vocabulary or []),
-            live_config.proactivity is not None,
         )
         return live_config
 
@@ -757,29 +666,6 @@ class GeminiLiveHandler(AsyncStreamHandler):
                 self.is_idle_tool_call,
                 args_json_str,
             )
-
-            # The model sometimes issues the same call twice in parallel (two camera
-            # snapshots, two identical searches). Run it once; answer the copy silently
-            # so the model isn't left waiting on a call_id.
-            now = asyncio.get_event_loop().time()
-            key = (tool_name, "" if tool_name in DEDUPE_BY_NAME_TOOLS else args_json_str)
-            self._recent_tool_calls = {
-                k: t for k, t in self._recent_tool_calls.items() if now - t < DUPLICATE_TOOL_CALL_WINDOW_S
-            }
-            if key in self._recent_tool_calls:
-                logger.info("Skipping duplicate tool call: %s %s", tool_name, args_json_str)
-                if self.session is not None:
-                    await self.session.send_tool_response(
-                        function_responses=[
-                            types.FunctionResponse(
-                                id=call_id,
-                                name=tool_name,
-                                response={"result": "duplicate of a call already running", "scheduling": "SILENT"},
-                            )
-                        ]
-                    )
-                continue
-            self._recent_tool_calls[key] = now
 
             bg_tool = await self.tool_manager.start_tool(
                 call_id=call_id,
@@ -911,7 +797,6 @@ class GeminiLiveHandler(AsyncStreamHandler):
             _SUPPRESS_CONSOLE_TOOLS = {
                 "remember",
                 "identify_user",
-                "camera",
                 "do_nothing",
                 "recall",
                 "dance",
@@ -998,11 +883,8 @@ class GeminiLiveHandler(AsyncStreamHandler):
             self.deps.active_user = get_active_user()
         user_id = self.deps.active_user
         resuming = self._resume_handle is not None
-        continuing, self._continuing = self._continuing, False
-        logger.warning(
-            "Session starting: profile=%r user=%r resuming=%s continuing=%s", profile, user_id, resuming, continuing
-        )
-        if not resuming and not continuing:
+        logger.warning("Session starting: profile=%r user=%r resuming=%s", profile, user_id, resuming)
+        if not resuming:
             self._session_transcript = []  # reset for new session
             self._turn_count = 0
 
@@ -1013,7 +895,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
             logger.info("Memory: disabled for profile=%r (no memory.txt with enabled=true)", profile)
 
         # Load memory, location, and MCP tools concurrently
-        mcp_pool = await self._mcp_pool_for(profile)
+        mcp_pool = MCPClientPool.from_profile(profile, config.PROFILES_DIRECTORY)
 
         async def _no_memory() -> str:
             return ""
@@ -1038,7 +920,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
             register_mcp_tools(mcp_pool, mcp_specs)
 
         memory_error = getattr(self._memory, "last_error", None) if self._memory_enabled else None
-        session_notes = "" if resuming else await self._session_notes(user_id, memory_error, continuing)
+        session_notes = "" if resuming else await self._session_notes(user_id, memory_error)
 
         # Combine contexts: location first (low-confidence defaults), memory second (overrides)
         extra_context = "\n\n".join(filter(None, [location_context, memory_context, session_notes]))
@@ -1491,10 +1373,9 @@ class GeminiLiveHandler(AsyncStreamHandler):
 
     async def emit(self) -> Tuple[int, NDArray[np.int16]] | AdditionalOutputs | None:
         """Emit audio frame to be played by the speaker."""
-        # Idle nudges make the model answer nobody every 15s ("anything else?", spoken
-        # do_nothing reasoning, placeholders), so they're opt-in.
+        # Handle idle
         idle_duration = asyncio.get_event_loop().time() - self.last_activity_time
-        if self._idle_nudges and idle_duration > 15.0 and self.deps.movement_manager.is_idle():
+        if idle_duration > 15.0 and self.deps.movement_manager.is_idle():
             try:
                 await self.send_idle_signal(idle_duration)
             except Exception as e:
@@ -1530,7 +1411,6 @@ class GeminiLiveHandler(AsyncStreamHandler):
             deregister_mcp_tools(self._mcp_pool)
             await self._mcp_pool.close()
             self._mcp_pool = None
-            self._mcp_pool_profile = None
 
         # Clear remaining items in the output queue
         while not self.output_queue.empty():
