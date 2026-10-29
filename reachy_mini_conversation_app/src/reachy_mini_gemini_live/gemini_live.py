@@ -169,6 +169,32 @@ def _resolve_gemini_voice(profile_voice: str) -> str:
     return resolve_voice(profile_voice)
 
 
+def _realtime_input_config() -> types.RealtimeInputConfig:
+    """Turn-taking settings for the server-side voice activity detection.
+
+    The defaults end a turn on the first short pause, so "How's it going?" arrives as
+    "How" and the model answers a fragment. Low end-of-speech sensitivity plus a longer
+    silence window lets people pause mid-sentence. Tunable via REACHY_MINI_VAD_SILENCE_MS
+    and REACHY_MINI_VAD_END_SENSITIVITY (low/high).
+    """
+    try:
+        silence_ms = int(os.environ.get("REACHY_MINI_VAD_SILENCE_MS", "800"))
+    except ValueError:
+        silence_ms = 800
+    end = os.environ.get("REACHY_MINI_VAD_END_SENSITIVITY", "low").strip().lower()
+    return types.RealtimeInputConfig(
+        automatic_activity_detection=types.AutomaticActivityDetection(
+            end_of_speech_sensitivity=(
+                types.EndSensitivity.END_SENSITIVITY_HIGH
+                if end == "high"
+                else types.EndSensitivity.END_SENSITIVITY_LOW
+            ),
+            silence_duration_ms=silence_ms,
+            prefix_padding_ms=200,
+        ),
+    )
+
+
 class GeminiLiveHandler(AsyncStreamHandler):
     """Gemini Live API handler (headless LocalStream or fastrtc Stream in --gradio mode)."""
 
@@ -725,6 +751,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
                 language_codes=[language] if language else None,
             ),
             output_audio_transcription=types.AudioTranscriptionConfig(),
+            realtime_input_config=_realtime_input_config(),
             context_window_compression=types.ContextWindowCompressionConfig(
                 trigger_tokens=104857,
                 sliding_window=types.SlidingWindow(target_tokens=52428),
