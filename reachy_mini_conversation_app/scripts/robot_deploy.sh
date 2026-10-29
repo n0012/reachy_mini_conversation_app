@@ -13,6 +13,7 @@
 #     --rollback is given — so an improvement can never silently downgrade the robot.
 #   * Refuses a forward deploy unless ruff, the test suite and the replay eval passed
 #     for that exact commit (eval verdict in ~/.reachy_eval/results/<sha>/verdict.json).
+#   * Refuses a forward deploy of a commit that isn't pushed to GitHub.
 #   * Never touches ~/.reachy_mini_gemini_live (profiles, .env, active user) or memories.
 #   * Backs up the installed package before replacing it.
 #
@@ -118,6 +119,13 @@ if [ "$mode" != "rollback" ]; then
     die "ruff failed"
   say "tests"
   "$APP_ROOT/scripts/run_tests.sh" || die "tests failed"
+fi
+
+# 3b. The robot only runs code that is on GitHub.
+if [ "$mode" = "forward" ]; then
+  git -C "$REPO_ROOT" fetch -q origin || die "could not fetch origin to check $short is pushed"
+  [ -n "$(git -C "$REPO_ROOT" branch -r --contains "$sha")" ] ||
+    die "$short is not on GitHub — push it first (git push)"
 fi
 
 # 4. Eval verdict required for forward deploys.
