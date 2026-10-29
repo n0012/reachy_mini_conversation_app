@@ -95,14 +95,14 @@ async def test_load_context_dates_memories_and_lists_recent_first(vertex, monkey
     ctx = await vertex.load_context("default", user_id="u1")
 
     recent = ctx.index("From recent conversations")
-    background = ctx.index("Background")
+    background = ctx.index("What you know from earlier")
     assert recent < ctx.index("Started learning chess. (12 hours ago)") < background
     assert background < ctx.index("Works in tech. (5 months ago)")
 
 
 @pytest.mark.asyncio
 async def test_load_context_caps_older_and_does_not_repeat_recent(vertex, monkeypatch) -> None:
-    olds = [{"fact": f"Old fact {i}.", "name": f"m/o{i}", "createTime": _at(40 + i)} for i in range(12)]
+    olds = [{"fact": f"Old fact {i}.", "name": f"m/o{i}", "createTime": _at(40 + i)} for i in range(25)]
     recent = [
         {"fact": "Had pancakes yesterday.", "name": "m/r1", "createTime": _at(1.2)},
         {"fact": "Watched a film tonight.", "name": "m/r2", "createTime": _at(0.1)},
@@ -114,4 +114,4 @@ async def test_load_context_caps_older_and_does_not_repeat_recent(vertex, monkey
 
     assert ctx.count("Had pancakes yesterday.") == 1
     assert ctx.index("Watched a film tonight.") < ctx.index("Had pancakes yesterday.")  # newest first
-    assert sum(f"Old fact {i}." in ctx for i in range(12)) == memory_mod.OLDER_MAX
+    assert sum(f"Old fact {i}." in ctx for i in range(25)) == memory_mod.OLDER_MAX

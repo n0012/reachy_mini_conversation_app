@@ -200,7 +200,7 @@ def _api_read(method: str, url: str, body: dict | None = None) -> dict:
 
 RECENT_DAYS = 3.0  # memories saved within this many days are "recent conversations"
 RECENT_MAX = 12  # newest recent memories shown at session start
-OLDER_MAX = int(os.getenv("REACHY_MINI_OLDER_MEMORIES", "8"))  # most relevant older memories shown
+OLDER_MAX = DEFAULT_TOP_K  # most relevant older memories shown (who they are, family, preferences)
 
 
 def _age_days_of(memory: dict) -> float | None:
@@ -239,14 +239,16 @@ def _format_dated_context(recent: list[dict], older: list[dict]) -> str:
     lines = [
         "<vertex_memory_bank>",
         "Memories from prior sessions, each with how long ago it was saved (the current date and "
-        "time are given above). In small talk, draw on recent conversations. Don't volunteer "
-        "background memories unless the person brings up that topic, and never present an older "
-        "memory as something recent; if you're not sure when something happened, say so.",
+        "time are given above). Use what you know about who the person is, their family and "
+        "preferences naturally. For small talk about what's been happening, draw on recent "
+        "conversations; don't bring up old events unless the person raises the topic, and never "
+        "present an older memory as something recent. If you're not sure when something "
+        "happened, say so.",
     ]
     n = 0
     for heading, group in (
         ("From recent conversations (newest first):", recent),
-        ("Background — older memories, only if relevant:", older),
+        ("What you know from earlier (older memories):", older),
     ):
         if not group:
             continue
@@ -398,7 +400,7 @@ class VertexMemoryBackend:
         """Recent memories (by date) plus the most relevant older ones, formatted for the system prompt."""
         scope_user = user_id or get_active_user()
         relevant, listed = await asyncio.gather(
-            self._retrieve(profile, MEMORY_SEARCH_QUERY, user_id=user_id, with_ids=True),
+            self._retrieve(profile, MEMORY_SEARCH_QUERY, user_id=user_id, top_k=OLDER_MAX + RECENT_MAX, with_ids=True),
             self.list_memories(profile, user_id=scope_user),
         )
         key = (profile, scope_user)
