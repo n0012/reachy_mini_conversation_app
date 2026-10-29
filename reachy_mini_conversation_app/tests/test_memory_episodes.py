@@ -124,3 +124,8 @@ async def test_recent_conversations_lead_and_old_ones_stay_out(vertex, monkeypat
 
 async def _done(value: object) -> object:
     return value
+
+
+def test_ages_never_read_24_hours() -> None:
+    assert memory_mod._ago(23.6 / 24) == "1 day ago"
+    assert memory_mod._ago(5 / 24) == "5 hours ago"

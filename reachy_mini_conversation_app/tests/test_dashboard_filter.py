@@ -92,3 +92,10 @@ async def test_one_repeat_keeps_the_session_three_restart_it(monkeypatch) -> Non
     await handler._flush_transcript_chunks("assistant", ["Good afternoon, Nick."])
     await asyncio.sleep(0)
     assert restarts == [1]
+
+
+@pytest.mark.asyncio
+async def test_non_answer_tag_glued_to_speech_is_stripped() -> None:
+    handler = _handler()
+    await handler._flush_transcript_chunks("assistant", ["Good afternoon, Nick.<no speech detected>"])
+    assert handler._session_transcript[-1]["content"] == "Good afternoon, Nick."

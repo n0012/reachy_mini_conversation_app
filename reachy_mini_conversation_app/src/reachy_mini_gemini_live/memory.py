@@ -207,8 +207,18 @@ RECENT_DAYS = 3.0  # memories saved within this many days are "recent conversati
 RECENT_MAX = 12  # newest recent memories shown at session start
 OLDER_MAX = DEFAULT_TOP_K  # most relevant older memories shown (who they are, family, preferences)
 # Appearance facts, for recognising people by camera. Consolidation rewrites "Visual ID — X: ..."
-# into plain prose ("X has a round face, ..."), so match on content, not only the label.
-_APPEARANCE = re.compile(r"visual id|physical description|\b(eyes|hair|beard|glasses|freckles)\b", re.I)
+# into plain prose ("X has a round face, ..."), so match on content, not only the label — but
+# these go to every family member's session, so a passing mention ("broke his glasses") must not.
+_APPEARANCE_LABEL = re.compile(r"^\s*(visual id|physical description)\b", re.I)
+_APPEARANCE_WORD = re.compile(r"\b(face|skin|eyes|hair|beard|moustache|mustache|glasses|freckles|build)\b", re.I)
+
+
+def _is_appearance(memory: dict) -> bool:
+    """Return True for a labelled Visual ID, or a description naming three or more appearance features."""
+    fact = memory.get("fact") or ""
+    if _is_episode(memory):
+        return False
+    return bool(_APPEARANCE_LABEL.match(fact)) or len({w.lower() for w in _APPEARANCE_WORD.findall(fact)}) >= 3
 
 
 EPISODE_DAYS = 14.0  # conversation summaries from this many days are shown at session start
@@ -243,7 +253,8 @@ def _ago(age_days: float | None) -> str:
         return "date unknown"
     if age_days < 1:
         hours = max(1, round(age_days * 24))
-        return f"{hours} hour{'s' if hours != 1 else ''} ago"
+        if hours < 24:
+            return f"{hours} hour{'s' if hours != 1 else ''} ago"
     # Days up to two weeks, then weeks, months, years.
     for unit, size, start in (("year", 365.0, 365.0), ("month", 30.0, 30.0), ("week", 7.0, 14.0), ("day", 1.0, 1.0)):
         if age_days >= start:
@@ -434,7 +445,7 @@ class VertexMemoryBackend:
         faces = [
             {"memory_id": m["name"], "fact": m["fact"], "user": m.get("scope", {}).get("user_id") or "?"}
             for m in listed
-            if m.get("fact") and m.get("name") and _APPEARANCE.search(m["fact"])
+            if m.get("fact") and m.get("name") and _is_appearance(m)
         ]
         faces.sort(key=lambda f: (f["user"] != scope_user, f["user"]))  # the active user first
         face_ids = {f["memory_id"] for f in faces}
@@ -584,8 +595,12 @@ class VertexMemoryBackend:
         meaningful = [t for t in transcript if self._is_meaningful_turn(t)]
         if sum(len(t.get("content", "")) for t in meaningful if t.get("role") == "user") < 40:
             return "skipped"
-        who = (user_id or get_active_user()).title()
-        dialogue = "\n".join(f"{'Robot' if t['role'] != 'user' else who}: {t['content']}" for t in meaningful)[-12000:]
+        user = user_id or get_active_user()  # resolved once: the active user may change while we summarise
+        who = user.title()
+        lines = [f"{'Robot' if t['role'] != 'user' else who}: {t['content']}" for t in meaningful]
+        while len(lines) > 1 and sum(len(x) + 1 for x in lines) > 12000:
+            lines.pop(0)  # keep whole turns, newest last
+        dialogue = "\n".join(lines)[-12000:]
         from reachy_mini_gemini_live.location import local_now
 
         now = local_now()
@@ -612,7 +627,7 @@ class VertexMemoryBackend:
             return "skipped"
         body = {
             "fact": f"Conversation on {now:%A %B %-d, %Y}, {_part_of_day(now)}: {summary}",
-            "scope": self._scope(profile, user_id),
+            "scope": self._scope(profile, user),
             "metadata": {
                 "event_time": {"timestampValue": now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")},
                 "kind": {"stringValue": "episode"},

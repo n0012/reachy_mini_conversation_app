@@ -122,10 +122,21 @@ async def test_load_context_caps_older_and_does_not_repeat_recent(vertex, monkey
 
 @pytest.mark.asyncio
 async def test_load_context_includes_every_known_face_once(vertex, monkeypatch) -> None:
-    mine = {"fact": "U1 has short grey hair and glasses.", "name": "m/f1", "createTime": _at(90), "scope": U1}
+    mine = {
+        "fact": "U1 has a long face, short grey hair and glasses.",
+        "name": "m/f1",
+        "createTime": _at(90),
+        "scope": U1,
+    }
     theirs = {
         "fact": "Visual ID — Sam: curly red hair.",
         "name": "m/f2",
+        "createTime": _at(90),
+        "scope": {"user_id": "sam", "profile": "default"},
+    }
+    passing_mention = {
+        "fact": "Sam cried her eyes out at the film and lost her glasses.",
+        "name": "m/s2",
         "createTime": _at(90),
         "scope": {"user_id": "sam", "profile": "default"},
     }
@@ -136,11 +147,12 @@ async def test_load_context_includes_every_known_face_once(vertex, monkeypatch) 
         "scope": {"user_id": "sam", "profile": "default"},
     }
     retrieved = {"retrievedMemories": [{"distance": 0.1, "memory": mine}]}
-    _api_seq(monkeypatch, retrieved, listed={"memories": [mine, theirs, other_user_news]})
+    _api_seq(monkeypatch, retrieved, listed={"memories": [mine, theirs, passing_mention, other_user_news]})
 
     ctx = await vertex.load_context("default", user_id="u1")
 
-    assert "1. Visual ID — U1: U1 has short grey hair and glasses." in ctx  # labelled, not duplicated
+    assert "1. Visual ID — U1: U1 has a long face, short grey hair and glasses." in ctx  # labelled, not duplicated
     assert "2. Visual ID — Sam: curly red hair." in ctx
     assert ctx.count("grey hair") == 1
     assert "new bike" not in ctx  # another person's recent news isn't this user's catch-up
+    assert "cried" not in ctx  # a passing mention of eyes or glasses isn't a Visual ID

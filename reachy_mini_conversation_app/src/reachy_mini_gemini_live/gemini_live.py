@@ -137,6 +137,9 @@ _PLACEHOLDER_MARKUP_RE = re.compile(
 )
 
 
+_INLINE_NON_ANSWER_RE = re.compile(r"<\s*no (speech|response)[^<>]*>|<!--.*?-->", re.I | re.S)
+
+
 def _is_placeholder(text: str) -> bool:
     """Return True if an assistant transcript is a non-answer rather than real speech."""
     return not any(c.isalnum() for c in _PLACEHOLDER_MARKUP_RE.sub("", text))
@@ -283,7 +286,9 @@ class GeminiLiveHandler(AsyncStreamHandler):
         # Drop assistant messages that are raw tool result echoes or memory context dumps.
         # Gemini sometimes outputs tool results or injected context verbatim as text.
         if role == "assistant":
-            s = transcript.strip()
+            # Non-answer tags glued onto real speech ("Good afternoon.<no speech detected>").
+            transcript = _INLINE_NON_ANSWER_RE.sub("", transcript).strip()
+            s = transcript
             # Full JSON object or array
             if (s.startswith("{") or s.startswith("[{")) and s.endswith("}"):
                 logger.debug("Dropping JSON tool echo: %.80s", s)
