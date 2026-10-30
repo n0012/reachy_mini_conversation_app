@@ -423,7 +423,7 @@ Real-time view of what Reachy sees and hears:
 
 ---
 
-## Wake Word & Sleep Mode
+## Sleep & Wake
 
 ### Three ways to sleep
 1. **Voice** — say "good night", "you can rest now", "I'm done", etc. The `go_to_sleep` tool fires automatically after Gemini speaks a brief goodbye.
@@ -433,15 +433,22 @@ Real-time view of what Reachy sees and hears:
 In all three cases Reachy:
 1. Closes the Gemini Live WebSocket — billing stops immediately
 2. Moves to a sleep pose and holds it
-3. Switches to offline wake word detection (zero cloud cost)
+3. Turns its motors off (deep sleep) and waits to be woken (zero cloud cost)
 
-### Wake word
+### Waking
+- **Push an antenna** (default): nudge either antenna about 15° and let go. With the motors off, the antennas move freely and the app reads their position every 0.1 s — the same gesture Pollen's daemon uses to launch apps (`AntennaTouchDetector`, ported from `reachy_mini/daemon/app/startup_app.py`). Disable with `REACHY_MINI_ANTENNA_WAKE=0`.
+- **Button** — POST `/session/wake` from the live monitor UI.
+- **"Hey Reachy"** (opt-in, `REACHY_MINI_WAKE_WORD=1`) — see below. Off by default: in a living room it false-triggered on TV and conversation far more often than it was used.
+
+If nobody speaks within 20 s of waking (`REACHY_MINI_FALSE_WAKE_SECONDS`), Reachy goes back to sleep.
+
+### Wake word (opt-in)
 Uses an [Edge Impulse](https://edgeimpulse.com) model trained on real "Hey Reachy" voice samples, from [luisomoreau/hey_reachy_wake_word_detection](https://huggingface.co/spaces/luisomoreau/hey_reachy_wake_word_detection). The `linux-aarch64` binary is bundled — no training required.
 
 The `AudioImpulseRunner` captures audio directly from the robot's microphone (16 kHz native) in a background thread, completely independent of the Gemini audio pipeline. The capture is resampled 16 → 24 kHz to match the model rate via `scipy.signal.resample_poly`. During sleep, `receive()` returns immediately — zero fastrtc processing overhead.
 
 ### Wake acknowledgement sound
-On detection, Reachy plays a quick rooster crow before reconnecting — instant audible confirmation that "Hey Reachy" was heard. Source: ["Young rooster crowing"](https://commons.wikimedia.org/wiki/File:Young_rooster_crowing.ogg) on Wikimedia Commons, [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) (trimmed, normalized, resampled — see `src/reachy_mini_gemini_live/sounds/CREDITS.md`).
+On an antenna push or wake word, Reachy plays a quick rooster crow before reconnecting — instant audible confirmation that the wake registered. Source: ["Young rooster crowing"](https://commons.wikimedia.org/wiki/File:Young_rooster_crowing.ogg) on Wikimedia Commons, [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) (trimmed, normalized, resampled — see `src/reachy_mini_gemini_live/sounds/CREDITS.md`).
 
 ---
 

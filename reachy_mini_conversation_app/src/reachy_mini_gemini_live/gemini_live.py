@@ -242,6 +242,11 @@ class GeminiLiveHandler(AsyncStreamHandler):
         self._sleeping: bool = False
         self._wake_event: asyncio.Event = asyncio.Event()
         self._wake_event.set()  # start awake
+        # Waking: push an antenna (on by default). The "Hey Reachy" wake word is opt-in —
+        # on the robot it false-triggered ~4x as often as it was used (TV, conversation).
+        self._antenna_wake = _env_flag("REACHY_MINI_ANTENNA_WAKE", True)
+        self._wake_word = _env_flag("REACHY_MINI_WAKE_WORD", False)
+        self._antenna_task: asyncio.Task | None = None
         # Edge Impulse wake word detection (luisomoreau/hey_reachy_wake_word_detection)
         self._ei_thread: object | None = None
         self._ei_stop: "threading.Event | None" = None
@@ -568,9 +573,23 @@ class GeminiLiveHandler(AsyncStreamHandler):
         deep_sleep = getattr(self.deps, "deep_sleep", None)
         if deep_sleep is not None and self._sleeping:
             await asyncio.get_event_loop().run_in_executor(None, deep_sleep.enter)
-        # Start Edge Impulse wake word detection + watchdog
-        self._start_ei_detection(asyncio.get_event_loop())
-        asyncio.create_task(self._ei_watchdog(asyncio.get_event_loop()), name="ei-watchdog")
+        if not self._sleeping:
+            return
+        if self._antenna_wake and robot is not None:
+            from reachy_mini_gemini_live import antenna_wake
+
+            self._antenna_task = asyncio.create_task(
+                antenna_wake.watch(robot, lambda: self._sleeping, self._wake_from_antenna), name="antenna-wake"
+            )
+        if self._wake_word:
+            # Edge Impulse wake word detection + watchdog
+            self._start_ei_detection(asyncio.get_event_loop())
+            asyncio.create_task(self._ei_watchdog(asyncio.get_event_loop()), name="ei-watchdog")
+
+    async def _wake_from_antenna(self) -> None:
+        """Acknowledge an antenna push with the wake sound, then wake."""
+        await asyncio.get_event_loop().run_in_executor(None, self._play_wake_ack)
+        await self.wake()
 
     async def _ei_watchdog(self, loop: asyncio.AbstractEventLoop) -> None:
         """Restart EI detection if the audio stream freezes (pipewire routing drop).
@@ -599,6 +618,9 @@ class GeminiLiveHandler(AsyncStreamHandler):
     async def wake(self, profile: str | None = None) -> None:
         """Exit sleep mode and reconnect in-process; restart the app only on a profile switch."""
         self._stop_ei_detection()
+        task, self._antenna_task = self._antenna_task, None
+        if task is not None and task is not asyncio.current_task() and not task.done():
+            task.cancel()
         logger.info("Waking up (profile=%r)", profile)
         profile_switch = bool(profile and profile != self.deps.active_profile)
         if profile_switch:
