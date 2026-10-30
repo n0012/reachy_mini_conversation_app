@@ -20,7 +20,31 @@ tags:
 
 ![Reachy Mini Dance](docs/assets/reachy_mini_dance.gif)
 
-A fork of the [Pollen Robotics conversation app](https://huggingface.co/spaces/pollen-robotics/reachy_mini_conversation_app) rebuilt around the Gemini Live API with persistent per-user memory, profile-scoped MCP tools, and an offline wake word — all managed from a headless browser UI on the robot.
+A fork of the [Pollen Robotics conversation app](https://huggingface.co/spaces/pollen-robotics/reachy_mini_conversation_app) rebuilt around the Gemini Live API with persistent per-user memory, profile-scoped MCP tools, natural turn-taking, and push-an-antenna wake — all managed from a headless browser UI on the robot.
+
+---
+
+## What's new in 0.6
+
+**Conversations that feel natural**
+- Waits for you to finish a sentence instead of answering the first fragment (tuned server-side turn detection).
+- Stays silent when it has nothing to say, instead of voicing "no speech" ([proactive audio](https://ai.google.dev/gemini-api/docs/live-guide)).
+- Much better at ignoring overheard conversation and TV, and never acts on it — no calendar events or device changes from something it overheard.
+- Keeps the conversation's language unless you ask it to switch.
+
+**Memory that knows *when***
+- Knows today's date and how long ago things happened; recent conversations come first, older facts stay in the background.
+- Saves a dated record of each conversation, built only from what *you* said — the robot's own mistakes don't become memories.
+- Recognises every household member on camera, and rides out Memory Bank hiccups with a retry and the last good context.
+
+**Deep sleep, physical wake**
+- Asleep, motors turn off and the camera and microphone are released.
+- **Push an antenna to wake him** — the same gesture Pollen's daemon uses to launch apps. The "Hey Reachy" wake word is now opt-in: in a living room it false-triggered far more often than it was used.
+- Goes back to sleep on its own if nobody speaks within 20 s of waking.
+
+**Steadier day to day**
+- MCP tool connections are reused across sessions, camera snapshots are rate-limited, and placeholder text or raw tool output never reaches the dashboard.
+- For developers: a replay eval harness with an LLM judge and blind A/B comparisons, forward-only robot deploys with rollback, and 211 tests.
 
 ---
 
@@ -32,8 +56,8 @@ A fork of the [Pollen Robotics conversation app](https://huggingface.co/spaces/p
 | Persistent memory | ✗ | ✅ Vertex AI Agent Engine — per-user, cross-session |
 | MCP tool ecosystem | ✗ | ✅ Per-profile servers with secure credential injection |
 | Home Assistant | ✗ | ✅ Full home control via HA MCP (lights, climate, media, locks) |
-| Wake word | ✗ | ✅ Edge Impulse "Hey Reachy" — offline, on-device, with rooster crow ack on detect |
-| Sleep mode | ✗ | ✅ Voice ("good night"), button, or auto-sleep after configurable idle (1–60 min, default 10) — zero API cost |
+| Wake | ✗ | ✅ Push an antenna (default) or opt-in Edge Impulse "Hey Reachy" wake word — rooster crow ack on wake |
+| Sleep mode | ✗ | ✅ Voice ("good night"), button, or auto-sleep after configurable idle (1–60 min, default 10) — motors off, zero API cost |
 | Live monitor | ✗ | ✅ Browser camera feed + real-time transcript stream |
 | Settings UI | Basic | ✅ Full headless web app — setup wizard, profile editor, env vars |
 | Google Search | Global flag | ✅ Per-profile toggle |
@@ -497,6 +521,17 @@ Files excluded from HuggingFace uploads are listed in `.hfignore` (private profi
 | `REACHY_MINI_PROFILES_OVERRIDE` | optional | Absolute path to profiles directory |
 | `REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY` | optional | Path to additional tool `.py` files |
 | `AUTOLOAD_EXTERNAL_TOOLS` | optional | Set `1` to auto-load all tools in external dir |
+| `REACHY_MINI_ANTENNA_WAKE` | optional | Push an antenna to wake from sleep. Default `1` |
+| `REACHY_MINI_WAKE_WORD` | optional | Listen for "Hey Reachy" while asleep. Default `0` |
+| `REACHY_MINI_WAKE_THRESHOLD` | optional | Wake-word score threshold. Default `0.7` |
+| `REACHY_MINI_FALSE_WAKE_SECONDS` | optional | Back to sleep if nobody speaks this long after waking (`0` = off). Default `20` |
+| `REACHY_MINI_DEEP_SLEEP` | optional | Motors off and media released while asleep. Default `1` |
+| `REACHY_MINI_PROACTIVE_AUDIO` | optional | Let the model stay silent for input not meant for it (uses the v1alpha Live API). Default `1` |
+| `REACHY_MINI_VAD_SILENCE_MS` | optional | Silence that ends your turn. Default `800` |
+| `REACHY_MINI_VAD_END_SENSITIVITY` | optional | End-of-speech sensitivity, `low` or `high`. Default `low` |
+| `REACHY_MINI_LANGUAGE` | optional | Speech and transcription language; empty = auto. Default `en-US` |
+| `REACHY_MINI_IDLE_NUDGES` | optional | Send idle prompts every 15 s while awake. Default `0` |
+| `REACHY_MINI_EPISODE_MODEL` | optional | Model that writes the dated conversation records. Default `gemini-3.8-flash` |
 
 ---
 
