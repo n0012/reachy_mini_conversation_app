@@ -38,7 +38,7 @@ A fork of the [Pollen Robotics conversation app](https://huggingface.co/spaces/p
 - Recognises every household member on camera, and rides out Memory Bank hiccups with a retry and the last good context.
 
 **Deep sleep, physical wake**
-- Asleep, motors turn off and the camera and microphone are released.
+- Asleep, motors turn off and the camera stops, while the robot stays reachable by remote apps such as Hugging Face Spaces. (With the wake word on, the microphone is released too, which takes it off the remote relay until it wakes.)
 - **Push an antenna to wake him** — the same gesture Pollen's daemon uses to launch apps. The "Hey Reachy" wake word is now opt-in: in a living room it false-triggered far more often than it was used.
 - Goes back to sleep on its own if nobody speaks within 20 s of waking.
 
@@ -525,7 +525,8 @@ Files excluded from HuggingFace uploads are listed in `.hfignore` (private profi
 | `REACHY_MINI_WAKE_WORD` | optional | Listen for "Hey Reachy" while asleep. Default `0` |
 | `REACHY_MINI_WAKE_THRESHOLD` | optional | Wake-word score threshold. Default `0.7` |
 | `REACHY_MINI_FALSE_WAKE_SECONDS` | optional | Back to sleep if nobody speaks this long after waking (`0` = off). Default `20` |
-| `REACHY_MINI_DEEP_SLEEP` | optional | Motors off and media released while asleep. Default `1` |
+| `REACHY_MINI_DEEP_SLEEP` | optional | Motors and camera off while asleep. Default `1` |
+| `REACHY_MINI_SLEEP_RELEASE_MEDIA` | optional | Also release the daemon's media while asleep. This stops its central relay, so remote apps can't connect. Default: on only with the wake word |
 | `REACHY_MINI_PROACTIVE_AUDIO` | optional | Let the model stay silent for input not meant for it (uses the v1alpha Live API). Default `1` |
 | `REACHY_MINI_VAD_SILENCE_MS` | optional | Silence that ends your turn. Default `800` |
 | `REACHY_MINI_VAD_END_SENSITIVITY` | optional | End-of-speech sensitivity, `low` or `high`. Default `low` |

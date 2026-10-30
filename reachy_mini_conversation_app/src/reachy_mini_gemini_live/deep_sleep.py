@@ -4,6 +4,12 @@ Asleep, most of the CPU (and fan noise) is the daemon's camera/audio pipelines a
 loops polling them, and the servos are powered just to hold the sleep pose. Wake-word
 detection reads ALSA (``reachymini_audio_src``) directly, so it keeps working with media
 released. ``REACHY_MINI_DEEP_SLEEP=0`` keeps the old light sleep.
+
+Releasing media also stops the daemon's central signalling relay, which takes the robot off
+remote apps (Hugging Face Spaces using the JS SDK) until it wakes. So media is only released
+when the opt-in wake word needs the microphone (``REACHY_MINI_WAKE_WORD``); otherwise sleep
+turns the motors and camera polling off and the relay stays up.
+``REACHY_MINI_SLEEP_RELEASE_MEDIA=1``/``0`` overrides that choice.
 """
 
 import os
@@ -15,6 +21,13 @@ import threading
 logger = logging.getLogger(__name__)
 
 ACQUIRE_ATTEMPTS = 3
+
+
+def _flag(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() not in ("", "0", "false", "no", "off")
 
 
 def _released(robot: object) -> bool:
@@ -29,9 +42,11 @@ class DeepSleep:
         """Hold the robot and the camera worker whose loop must stop polling while asleep."""
         self.robot = robot
         self.camera_worker = camera_worker
-        self.enabled = os.environ.get("REACHY_MINI_DEEP_SLEEP", "1").strip().lower() not in ("0", "false", "no", "off")
+        self.enabled = _flag("REACHY_MINI_DEEP_SLEEP", True)
+        self.release_media = _flag("REACHY_MINI_SLEEP_RELEASE_MEDIA", _flag("REACHY_MINI_WAKE_WORD", False))
         # Set while media is (or is about to be) unavailable; the console audio loops check it.
         self.media_paused = threading.Event()
+        self._asleep = False
         self._lock = threading.Lock()
 
     def enter(self) -> None:
@@ -39,15 +54,20 @@ class DeepSleep:
         if not self.enabled or self.robot is None:
             return
         with self._lock:
-            if self.media_paused.is_set():
+            if self._asleep:
                 return
-            self.media_paused.set()
+            self._asleep = True
+            if self.release_media:
+                self.media_paused.set()
             self._pause_camera(True)
             time.sleep(0.2)  # let the loops see the flag before the media manager goes away
             try:
                 self.robot.disable_motors()  # type: ignore[attr-defined]
             except Exception as e:
                 logger.warning("Deep sleep: could not disable motors: %s", e)
+            if not self.release_media:
+                logger.info("Deep sleep: motors off, media kept so remote apps can still connect")
+                return
             try:
                 self.robot.release_media()  # type: ignore[attr-defined]
             except Exception as e:
@@ -60,12 +80,17 @@ class DeepSleep:
     def exit(self) -> bool:
         """Leave deep sleep (blocking). False if media could not be re-acquired."""
         with self._lock:
-            if not self.media_paused.is_set():
+            if not self._asleep:
                 return True
             try:
                 self.robot.enable_motors()  # type: ignore[attr-defined]
             except Exception as e:
                 logger.warning("Deep sleep: could not enable motors: %s", e)
+            if not self.media_paused.is_set():  # media was kept (or its release failed)
+                self._pause_camera(False)
+                self._asleep = False
+                logger.info("Deep sleep: motors on")
+                return True
             for attempt in range(1, ACQUIRE_ATTEMPTS + 1):
                 try:
                     self.robot.acquire_media()  # type: ignore[attr-defined]
@@ -86,6 +111,7 @@ class DeepSleep:
             time.sleep(1.0)  # same settle time the console gives the pipelines at startup
             self._pause_camera(False)
             self.media_paused.clear()
+            self._asleep = False
             logger.info("Deep sleep: motors on, media re-acquired")
             return True
 

@@ -1,4 +1,4 @@
-"""Deep sleep pauses media consumers, turns motors off and releases media; wake undoes it in order."""
+"""Deep sleep pauses media consumers, turns motors off and (for the wake word) releases media; wake undoes it."""
 
 import time
 from unittest.mock import MagicMock
@@ -40,6 +40,38 @@ class FakeRobot:
 def _fast(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(time, "sleep", lambda _s: None)
     monkeypatch.delenv("REACHY_MINI_DEEP_SLEEP", raising=False)
+    monkeypatch.delenv("REACHY_MINI_WAKE_WORD", raising=False)
+    # Most tests cover the media-release path; the default (keep media) has its own tests.
+    monkeypatch.setenv("REACHY_MINI_SLEEP_RELEASE_MEDIA", "1")
+
+
+def test_default_keeps_media_so_the_central_relay_stays_up(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("REACHY_MINI_SLEEP_RELEASE_MEDIA")
+    robot, camera = FakeRobot(), MagicMock()
+    sleep = ds.DeepSleep(robot, camera)
+
+    sleep.enter()
+    assert robot.calls == ["disable_motors"]
+    assert not sleep.media_paused.is_set()  # audio loops keep running, as in light sleep
+    camera.pause.assert_called_once()
+    sleep.enter()
+    assert robot.calls == ["disable_motors"]
+
+    robot.calls.clear()
+    assert sleep.exit() is True
+    assert robot.calls == ["enable_motors"]
+    camera.resume.assert_called_once()
+    assert sleep.exit() is True and robot.calls == ["enable_motors"]
+
+
+def test_wake_word_releases_media(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("REACHY_MINI_SLEEP_RELEASE_MEDIA")
+    monkeypatch.setenv("REACHY_MINI_WAKE_WORD", "1")
+    robot = FakeRobot()
+
+    ds.DeepSleep(robot).enter()
+
+    assert robot.calls == ["disable_motors", "release_media"]
 
 
 def test_enter_then_exit_round_trip() -> None:
@@ -76,6 +108,9 @@ def test_release_failure_falls_back_to_light_sleep() -> None:
 
     assert not sleep.media_paused.is_set()
     camera.resume.assert_called_once()
+    robot.calls.clear()
+    assert sleep.exit() is True
+    assert robot.calls == ["enable_motors"]  # motors come back even though media never left
 
 
 def test_disabled_by_env(monkeypatch: pytest.MonkeyPatch) -> None:
