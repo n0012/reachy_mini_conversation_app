@@ -34,3 +34,13 @@ def test_vad_env_overrides(monkeypatch) -> None:
 def test_vad_bad_silence_falls_back(monkeypatch) -> None:
     monkeypatch.setenv("REACHY_MINI_VAD_SILENCE_MS", "soon")
     assert _cfg().realtime_input_config.automatic_activity_detection.silence_duration_ms == 800
+
+
+def test_proactive_audio_on_by_default(monkeypatch) -> None:
+    monkeypatch.delenv("REACHY_MINI_PROACTIVE_AUDIO", raising=False)
+    assert _cfg().proactivity.proactive_audio is True
+
+
+def test_proactive_audio_can_be_turned_off(monkeypatch) -> None:
+    monkeypatch.setenv("REACHY_MINI_PROACTIVE_AUDIO", "0")
+    assert _cfg().proactivity is None

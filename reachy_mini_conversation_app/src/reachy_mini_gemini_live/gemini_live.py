@@ -219,6 +219,9 @@ class GeminiLiveHandler(AsyncStreamHandler):
         self.last_activity_time = asyncio.get_event_loop().time()
         self.start_time = asyncio.get_event_loop().time()
         self._idle_nudges = _env_flag("REACHY_MINI_IDLE_NUDGES", False)
+        # Proactive audio lets the model stay silent for input not meant for it, instead of
+        # voicing a non-answer ("<no speech>" spoken aloud). Only the v1alpha Live API accepts it.
+        self._proactive_audio = _env_flag("REACHY_MINI_PROACTIVE_AUDIO", True)
         self.is_idle_tool_call = False
 
         # Track API key source (env vs textbox)
@@ -318,7 +321,10 @@ class GeminiLiveHandler(AsyncStreamHandler):
         # Gemini sometimes outputs tool results or injected context verbatim as text.
         if role == "assistant":
             # Non-answer tags glued onto real speech ("Good afternoon.<no speech detected>").
-            transcript = _INLINE_NON_ANSWER_RE.sub("", transcript).strip()
+            cleaned = _INLINE_NON_ANSWER_RE.sub("", transcript).strip()
+            if cleaned != transcript:
+                logger.info("Spoken non-answer tag stripped: %.80r", transcript)
+            transcript = cleaned
             s = transcript
             # Full JSON object or array
             if (s.startswith("{") or s.startswith("[{")) and s.endswith("}"):
@@ -675,7 +681,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
             raise RuntimeError("GEMINI_API_KEY not set. Complete setup at the web UI.")
         self.client = genai.Client(
             api_key=api_key,
-            http_options={"api_version": "v1beta"},
+            http_options={"api_version": "v1alpha" if self._proactive_audio else "v1beta"},
         )
 
         while not self._stop_event.is_set():
@@ -784,6 +790,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
             ),
             output_audio_transcription=types.AudioTranscriptionConfig(),
             realtime_input_config=_realtime_input_config(),
+            proactivity=types.ProactivityConfig(proactive_audio=True) if self._proactive_audio else None,
             context_window_compression=types.ContextWindowCompressionConfig(
                 trigger_tokens=104857,
                 sliding_window=types.SlidingWindow(target_tokens=52428),
