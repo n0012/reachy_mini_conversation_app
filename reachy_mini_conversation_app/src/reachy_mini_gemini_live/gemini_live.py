@@ -219,6 +219,9 @@ class GeminiLiveHandler(AsyncStreamHandler):
         self.last_activity_time = asyncio.get_event_loop().time()
         self.start_time = asyncio.get_event_loop().time()
         self._idle_nudges = _env_flag("REACHY_MINI_IDLE_NUDGES", False)
+        # Proactive audio lets the model stay silent for input not meant for it, instead of
+        # voicing a non-answer ("<no speech>" spoken aloud). Only the v1alpha Live API accepts it.
+        self._proactive_audio = _env_flag("REACHY_MINI_PROACTIVE_AUDIO", True)
         self.is_idle_tool_call = False
 
         # Track API key source (env vs textbox)
@@ -242,6 +245,11 @@ class GeminiLiveHandler(AsyncStreamHandler):
         self._sleeping: bool = False
         self._wake_event: asyncio.Event = asyncio.Event()
         self._wake_event.set()  # start awake
+        # Waking: push an antenna (on by default). The "Hey Reachy" wake word is opt-in —
+        # on the robot it false-triggered ~4x as often as it was used (TV, conversation).
+        self._antenna_wake = _env_flag("REACHY_MINI_ANTENNA_WAKE", True)
+        self._wake_word = _env_flag("REACHY_MINI_WAKE_WORD", False)
+        self._antenna_task: asyncio.Task | None = None
         # Edge Impulse wake word detection (luisomoreau/hey_reachy_wake_word_detection)
         self._ei_thread: object | None = None
         self._ei_stop: "threading.Event | None" = None
@@ -313,7 +321,10 @@ class GeminiLiveHandler(AsyncStreamHandler):
         # Gemini sometimes outputs tool results or injected context verbatim as text.
         if role == "assistant":
             # Non-answer tags glued onto real speech ("Good afternoon.<no speech detected>").
-            transcript = _INLINE_NON_ANSWER_RE.sub("", transcript).strip()
+            cleaned = _INLINE_NON_ANSWER_RE.sub("", transcript).strip()
+            if cleaned != transcript:
+                logger.info("Spoken non-answer tag stripped: %.80r", transcript)
+            transcript = cleaned
             s = transcript
             # Full JSON object or array
             if (s.startswith("{") or s.startswith("[{")) and s.endswith("}"):
@@ -568,9 +579,23 @@ class GeminiLiveHandler(AsyncStreamHandler):
         deep_sleep = getattr(self.deps, "deep_sleep", None)
         if deep_sleep is not None and self._sleeping:
             await asyncio.get_event_loop().run_in_executor(None, deep_sleep.enter)
-        # Start Edge Impulse wake word detection + watchdog
-        self._start_ei_detection(asyncio.get_event_loop())
-        asyncio.create_task(self._ei_watchdog(asyncio.get_event_loop()), name="ei-watchdog")
+        if not self._sleeping:
+            return
+        if self._antenna_wake and robot is not None:
+            from reachy_mini_gemini_live import antenna_wake
+
+            self._antenna_task = asyncio.create_task(
+                antenna_wake.watch(robot, lambda: self._sleeping, self._wake_from_antenna), name="antenna-wake"
+            )
+        if self._wake_word:
+            # Edge Impulse wake word detection + watchdog
+            self._start_ei_detection(asyncio.get_event_loop())
+            asyncio.create_task(self._ei_watchdog(asyncio.get_event_loop()), name="ei-watchdog")
+
+    async def _wake_from_antenna(self) -> None:
+        """Acknowledge an antenna push with the wake sound, then wake."""
+        await asyncio.get_event_loop().run_in_executor(None, self._play_wake_ack)
+        await self.wake()
 
     async def _ei_watchdog(self, loop: asyncio.AbstractEventLoop) -> None:
         """Restart EI detection if the audio stream freezes (pipewire routing drop).
@@ -599,6 +624,9 @@ class GeminiLiveHandler(AsyncStreamHandler):
     async def wake(self, profile: str | None = None) -> None:
         """Exit sleep mode and reconnect in-process; restart the app only on a profile switch."""
         self._stop_ei_detection()
+        task, self._antenna_task = self._antenna_task, None
+        if task is not None and task is not asyncio.current_task() and not task.done():
+            task.cancel()
         logger.info("Waking up (profile=%r)", profile)
         profile_switch = bool(profile and profile != self.deps.active_profile)
         if profile_switch:
@@ -653,7 +681,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
             raise RuntimeError("GEMINI_API_KEY not set. Complete setup at the web UI.")
         self.client = genai.Client(
             api_key=api_key,
-            http_options={"api_version": "v1beta"},
+            http_options={"api_version": "v1alpha" if self._proactive_audio else "v1beta"},
         )
 
         while not self._stop_event.is_set():
@@ -762,6 +790,7 @@ class GeminiLiveHandler(AsyncStreamHandler):
             ),
             output_audio_transcription=types.AudioTranscriptionConfig(),
             realtime_input_config=_realtime_input_config(),
+            proactivity=types.ProactivityConfig(proactive_audio=True) if self._proactive_audio else None,
             context_window_compression=types.ContextWindowCompressionConfig(
                 trigger_tokens=104857,
                 sliding_window=types.SlidingWindow(target_tokens=52428),

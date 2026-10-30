@@ -25,28 +25,59 @@
 				<p class="eyebrow">Gemini Live Edition</p>
 				<h1>Reachy Mini that remembers you.</h1>
 				<p class="lede">
-					Built on <a href="https://huggingface.co/spaces/pollen-robotics/reachy_mini_conversation_app" target="_blank" rel="noopener">Pollen Robotics' conversation app</a>, this fork builds upon the base app's Gemini Live support and extends it to include persistent per-user memory, MCP tool servers, Home Assistant home control, and an offline wake word — all managed from a browser.
+					Built on <a href="https://huggingface.co/spaces/pollen-robotics/reachy_mini_conversation_app" target="_blank" rel="noopener">Pollen Robotics' conversation app</a>, this fork builds upon the base app's Gemini Live support and extends it to include persistent per-user memory, MCP tool servers, Home Assistant home control, natural turn-taking, and push-an-antenna wake — all managed from a browser.
 				</p>
 				<div class="hero-actions">
-					<a class="btn primary" href="#whats-new">What's new</a>
+					<a class="btn primary" href="#new-in-06">What's new in 0.6</a>
 					<a class="btn ghost" href="#highlights">All features</a>
 					<a class="btn ghost" href="https://www.youtube.com/watch?v=D_8Pma1vHmw" target="_blank" rel="noopener">🎵 We Are The Robots</a>
 				</div>
 				<div class="hero-badges">
 					<span>Gemini Live API</span>
 					<span>Vertex AI Agent Engine memory</span>
-					<span>Hey Reachy wake word</span>
+					<span>Push-an-antenna wake</span>
 					<span>Home Assistant control</span>
 				</div>
 			</div>
 			<div class="hero-visual">
 				<div class="glass-card">
 					<img src="docs/assets/reachy_mini_dance.gif" alt="Reachy Mini dancing" class="hero-gif">
-					<p class="caption">All the motion and personality of the base app — plus memory, tools, and a wake word.</p>
+					<p class="caption">All the motion and personality of the base app — plus memory, tools, and deep sleep.</p>
 				</div>
 			</div>
 		</div>
 	</header>
+
+	<section id="new-in-06" class="section features">
+		<div class="section-header">
+			<p class="eyebrow">Version 0.6</p>
+			<h2>New in 0.6</h2>
+			<p class="intro">A release about feel: Reachy listens better, remembers <em>when</em> things happened, and sleeps properly.</p>
+		</div>
+		<div class="feature-grid">
+			<div class="feature-card">
+				<span class="icon">💬</span>
+				<h3>Conversations that feel natural</h3>
+				<p>Waits for you to finish a sentence instead of answering the first fragment. Stays silent when it has nothing to say instead of voicing "no speech". Much better at ignoring overheard conversation and TV — and never acts on it. Keeps the conversation's language unless you ask it to switch.</p>
+				<a href="https://ai.google.dev/gemini-api/docs/live-guide" target="_blank" rel="noopener">↗ Live API: turn detection &amp; proactive audio</a>
+			</div>
+			<div class="feature-card">
+				<span class="icon">🗓️</span>
+				<h3>Memory that knows <em>when</em></h3>
+				<p>Knows today's date and how long ago things happened. Recent conversations come first; older facts stay in the background. Each conversation is saved as a dated record built only from what <em>you</em> said, so the robot's own mistakes never become memories.</p>
+			</div>
+			<div class="feature-card">
+				<span class="icon">📡</span>
+				<h3>Deep sleep, push-an-antenna wake</h3>
+				<p>Asleep, the motors turn off and the camera and mic are released. Push an antenna to wake him — the same gesture Pollen's daemon uses to launch apps. The "Hey Reachy" wake word is now opt-in: in a living room it false-triggered far more often than it was used.</p>
+			</div>
+			<div class="feature-card">
+				<span class="icon">🛠️</span>
+				<h3>Steadier day to day</h3>
+				<p>Tool connections are reused across sessions, camera snapshots are rate-limited, and no placeholder text or raw tool output reaches the dashboard. Under the hood: a replay eval harness with blind A/B judging and forward-only robot deploys with rollback.</p>
+			</div>
+		</div>
+	</section>
 
 	<section id="whats-new" class="section features">
 		<div class="section-header">
@@ -89,8 +120,8 @@
 			</div>
 			<div class="feature-card">
 				<span class="icon">😴</span>
-				<h3>Wake word + sleep modes</h3>
-				<p>Say "Hey Reachy" to wake from sleep — a <a href="https://commons.wikimedia.org/wiki/File:Young_rooster_crowing.ogg" target="_blank" rel="noopener">rooster crow</a> chirps when detected. Tell Reachy "good night" or "you can rest now" and it ends the session itself. Auto-sleeps after a configurable idle window (1–60 min, default 10) — Gemini billing stops, Edge Impulse model detects the wake word offline on-device.</p>
+				<h3>Sleep &amp; wake</h3>
+				<p>Tell Reachy "good night" or "you can rest now" and it ends the session itself, or it auto-sleeps after a configurable idle window (1–60 min, default 10) — Gemini billing stops and the motors turn off. Push an antenna to wake it; a <a href="https://commons.wikimedia.org/wiki/File:Young_rooster_crowing.ogg" target="_blank" rel="noopener">rooster crow</a> confirms. An offline Edge Impulse "Hey Reachy" wake word is available as an opt-in.</p>
 				<a href="https://huggingface.co/spaces/luisomoreau/hey_reachy_wake_word_detection" target="_blank" rel="noopener">↗ luisomoreau/hey_reachy_wake_word_detection</a>
 			</div>
 			<div class="feature-card">
